@@ -66,14 +66,17 @@ export function useCodex(): UseCodexResult {
   const [state, dispatchState] = useReducer(codexTasksReducer, { tasks: [] })
   const [receipts, setReceipts] = useState<CodexRunReceipt[]>([])
   const [receiptsVisible, setReceiptsVisible] = useState(false)
-  const [loggedIn, setLoggedIn] = useState<boolean | null>(null)
+  // Without the preload bridge (plain browser preview) the probe can never run.
+  const [loggedIn, setLoggedIn] = useState<boolean | null>(() => (window.jarvis ? null : false))
 
   const refresh = useCallback(async (): Promise<void> => {
+    if (!window.jarvis) return // non-preload context (plain browser preview)
     const tasks = await window.jarvis.codex.list()
     dispatchState({ type: 'codex/tasksLoaded', tasks })
   }, [])
 
   useEffect(() => {
+    if (!window.jarvis) return undefined // non-preload context (plain browser preview)
     void refresh()
     void window.jarvis.codex
       .loginStatus()
@@ -95,7 +98,7 @@ export function useCodex(): UseCodexResult {
   // whenever a task finishes while the receipts drawer is open, refresh it
   const doneCount = state.tasks.filter((t) => t.state !== 'running').length
   useEffect(() => {
-    if (!receiptsVisible) return
+    if (!receiptsVisible || !window.jarvis) return
     void window.jarvis.codex
       .receipts()
       .then(setReceipts)

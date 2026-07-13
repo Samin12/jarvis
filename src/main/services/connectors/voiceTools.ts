@@ -15,6 +15,7 @@
  * The `confirmed` parameter is injected into the tool schema so the model
  * knows it exists; it is stripped before hitting Composio.
  */
+import { createHash } from 'node:crypto'
 import { getAuthConfigId, getComposio, getUserId, hasComposioKey } from './composioClient'
 
 export interface RealtimeFunctionTool {
@@ -141,6 +142,33 @@ function failure(payload: Record<string, unknown>): ToolExecutionResult {
   return { ok: false, resultJson: JSON.stringify(payload) }
 }
 
+// ---------- confirmation state (two-step preview → confirm protocol) ----------
+
+const CONFIRM_TTL_MS = 2 * 60 * 1000
+
+/** Last previewed arguments per side-effect tool; confirm must match exactly. */
+const pendingConfirmations = new Map<string, { argsHash: string; at: number }>()
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`)
+    return `{${entries.join(',')}}`
+  }
+  // Args come from JSON.parse, so primitives are string/number/boolean/null.
+  return JSON.stringify(value ?? null)
+}
+
+function confirmationHash(name: string, args: Record<string, unknown>): string {
+  const rest: Record<string, unknown> = { ...args }
+  delete rest.confirmed
+  return createHash('sha256')
+    .update(`${name}:${stableStringify(rest)}`)
+    .digest('hex')
+}
+
 /**
  * Execute a curated connector tool on behalf of the realtime session.
  * Never throws — every outcome is an { ok, resultJson } envelope the voice
@@ -169,15 +197,38 @@ export async function executeTool(name: string, argsJson: string): Promise<ToolE
     return failure({ error: `Invalid tool arguments JSON: ${String(error)}` })
   }
 
-  // Confirmation gate for side-effectful tools.
-  if (CONFIRM_REQUIRED.has(name) && args.confirmed !== true) {
-    return failure({
-      needs_confirmation: true,
-      tool: name,
-      preview: compactPreview(args),
-      message:
-        'This action needs explicit user confirmation. Read the preview back to the user, ask them to confirm, then call the tool again with the same arguments plus confirmed: true.'
-    })
+  // Confirmation gate for side-effectful tools. `confirmed: true` is only
+  // honored when the SAME tool+arguments were previewed first — a bare
+  // confirmed-on-first-call (e.g. induced by prompt-injected content the model
+  // just read) is rejected and restarts the preview step. It never becomes a
+  // valid preview itself, so injection cannot self-confirm in one round.
+  if (CONFIRM_REQUIRED.has(name)) {
+    const argsHash = confirmationHash(name, args)
+    if (args.confirmed !== true) {
+      pendingConfirmations.set(name, { argsHash, at: Date.now() })
+      return failure({
+        needs_confirmation: true,
+        tool: name,
+        preview: compactPreview(args),
+        message:
+          'This action needs explicit user confirmation. Read the preview back to the user, ask them to confirm out loud, then call the tool again with the same arguments plus confirmed: true.'
+      })
+    }
+    const pending = pendingConfirmations.get(name)
+    const previewed =
+      pending !== undefined &&
+      pending.argsHash === argsHash &&
+      Date.now() - pending.at < CONFIRM_TTL_MS
+    if (!previewed) {
+      return failure({
+        needs_confirmation: true,
+        tool: name,
+        preview: compactPreview(args),
+        message:
+          'Confirmation rejected: this exact action was never previewed to the user (or the arguments changed). Call the tool WITHOUT confirmed first, read the preview back to the user, wait for their spoken confirmation, then retry with confirmed: true.'
+      })
+    }
+    pendingConfirmations.delete(name)
   }
   delete args.confirmed // Composio schemas do not know this parameter
 

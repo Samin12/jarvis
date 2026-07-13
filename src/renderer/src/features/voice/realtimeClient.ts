@@ -17,6 +17,9 @@ export const DISPATCH_CODEX_TOOL = {
   name: 'dispatch_codex_task',
   description:
     'Run an agentic computer task on this machine via Codex (file cleanup, coding, automation). ' +
+    'SIDE-EFFECT TOOL: first call it WITHOUT `confirmed` to get a preview, read the task back to ' +
+    'the user and wait for their spoken confirmation, then call again with the same task plus ' +
+    '`confirmed: true` to actually dispatch. ' +
     'Returns immediately with a task id; results stream into the task panel and are announced later.',
   parameters: {
     type: 'object',
@@ -24,6 +27,11 @@ export const DISPATCH_CODEX_TOOL = {
       task: {
         type: 'string',
         description: 'Self-contained natural-language description of the task to perform.'
+      },
+      confirmed: {
+        type: 'boolean',
+        description:
+          'Set true ONLY after the user has explicitly confirmed this task out loud. Omit on the first call.'
       }
     },
     required: ['task']
@@ -61,6 +69,9 @@ export class RealtimeVoiceClient {
   private reconnectTimer: number | null = null
   private closed = false
   private mode: CoreMode = 'idle'
+  /** Serialize response.create — the server rejects one while another response is active. */
+  private responseActive = false
+  private responseQueued = false
   private handledCallIds = new Set<string>()
   private userPartials = new Map<string, { id: string; text: string }>()
   private assistantPartials = new Map<string, { id: string; text: string }>()
@@ -105,7 +116,9 @@ export class RealtimeVoiceClient {
     pc.onconnectionstatechange = (): void => {
       if (this.closed) return
       const state = pc.connectionState
-      if (state === 'failed' || state === 'disconnected' || state === 'closed') {
+      // 'disconnected' is transient — ICE usually recovers within seconds;
+      // only 'failed'/'closed' are terminal.
+      if (state === 'failed' || state === 'closed') {
         this.events.onError?.(`Voice connection ${state}.`)
         this.close()
       }
@@ -159,7 +172,7 @@ export class RealtimeVoiceClient {
         content: [{ type: 'input_text', text: trimmed }]
       }
     })
-    this.send({ type: 'response.create' })
+    this.requestResponse()
     this.events.onTranscript?.({
       id: entryId(),
       role: 'user',
@@ -167,6 +180,24 @@ export class RealtimeVoiceClient {
       at: Date.now()
     })
     this.setMode('working')
+  }
+
+  /**
+   * Inject an out-of-band system update (e.g. a Codex task finishing) into the
+   * conversation and have the model speak it (research gpt-live-voice.md §2.8).
+   */
+  announceSystemUpdate(text: string): void {
+    const trimmed = text.trim()
+    if (!trimmed || !this.dc || this.dc.readyState !== 'open') return
+    this.send({
+      type: 'conversation.item.create',
+      item: {
+        type: 'message',
+        role: 'system',
+        content: [{ type: 'input_text', text: trimmed }]
+      }
+    })
+    this.requestResponse()
   }
 
   /** 0..1 output/mic level for the orb. */
@@ -212,6 +243,20 @@ export class RealtimeVoiceClient {
 
   private send(payload: Record<string, unknown>): void {
     if (this.dc && this.dc.readyState === 'open') this.dc.send(JSON.stringify(payload))
+  }
+
+  /**
+   * Ask for a model response, deferring while another response is active —
+   * two back-to-back response.create events (e.g. parallel function-call
+   * outputs) would otherwise error with conversation_already_has_active_response.
+   */
+  private requestResponse(): void {
+    if (this.responseActive) {
+      this.responseQueued = true
+      return
+    }
+    this.responseActive = true
+    this.send({ type: 'response.create' })
   }
 
   private setMode(mode: CoreMode): void {
@@ -301,6 +346,7 @@ export class RealtimeVoiceClient {
         break
       }
       case 'response.created':
+        this.responseActive = true // covers server-initiated (VAD) responses too
         this.setMode('working')
         break
       case 'response.output_audio_transcript.delta': {
@@ -343,6 +389,7 @@ export class RealtimeVoiceClient {
         }
         break
       case 'response.done': {
+        this.responseActive = false
         const output = (ev.response as Record<string, any> | undefined)?.output
         if (Array.isArray(output)) {
           for (const item of output) {
@@ -355,6 +402,10 @@ export class RealtimeVoiceClient {
               void this.runFunctionCall(item.name, item.call_id, String(item.arguments ?? '{}'))
             }
           }
+        }
+        if (this.responseQueued) {
+          this.responseQueued = false
+          this.requestResponse()
         }
         if (this.mode === 'working') this.setMode('idle')
         break
@@ -390,19 +441,34 @@ export class RealtimeVoiceClient {
     try {
       if (name === 'dispatch_codex_task') {
         let task = ''
+        let confirmed = false
         try {
-          const parsed = JSON.parse(argsJson) as { task?: unknown }
+          const parsed = JSON.parse(argsJson) as { task?: unknown; confirmed?: unknown }
           task = typeof parsed.task === 'string' ? parsed.task : ''
+          confirmed = parsed.confirmed === true
         } catch {
           task = ''
         }
         if (!task.trim()) throw new Error('dispatch_codex_task called without a task description.')
-        const { taskId } = await window.jarvis.codex.dispatch({ prompt: task })
-        output = JSON.stringify({
-          status: 'started',
-          taskId,
-          note: 'Task dispatched to Codex. Tell the user it is underway; completion will be announced separately.'
-        })
+        if (!confirmed) {
+          // Codex runs autonomously with write access — gate it like the other
+          // side-effect tools: preview first, dispatch only after confirmation.
+          ok = false
+          output = JSON.stringify({
+            needs_confirmation: true,
+            tool: name,
+            preview: { task },
+            message:
+              'Dispatching a Codex task changes files on this machine. Read the task back to the user, wait for their spoken confirmation, then call dispatch_codex_task again with the same task plus confirmed: true.'
+          })
+        } else {
+          const { taskId } = await window.jarvis.codex.dispatch({ prompt: task })
+          output = JSON.stringify({
+            status: 'started',
+            taskId,
+            note: 'Task dispatched to Codex. Tell the user it is underway; completion will be announced separately.'
+          })
+        }
       } else {
         const res = await window.jarvis.voice.executeTool({ name, argsJson })
         ok = res.ok
@@ -418,18 +484,30 @@ export class RealtimeVoiceClient {
       output = `${output.slice(0, MAX_TOOL_OUTPUT_CHARS)}…(truncated)`
     }
 
+    // The intentional confirmation round-trip is not an error — surface it as
+    // its own status so the HUD shows a "confirm?" chip instead of a red one.
+    let awaitingConfirmation = false
+    if (!ok) {
+      try {
+        const parsed = JSON.parse(output) as { needs_confirmation?: unknown }
+        awaitingConfirmation = parsed.needs_confirmation === true
+      } catch {
+        /* not JSON — plain error */
+      }
+    }
+
     this.events.onTranscript?.({
       id: entryId(),
       role: 'system',
       text: name,
       at: Date.now(),
-      tool: { name, status: ok ? 'done' : 'error' }
+      tool: { name, status: ok ? 'done' : awaitingConfirmation ? 'awaiting_confirmation' : 'error' }
     })
 
     this.send({
       type: 'conversation.item.create',
       item: { type: 'function_call_output', call_id: callId, output }
     })
-    this.send({ type: 'response.create' })
+    this.requestResponse()
   }
 }

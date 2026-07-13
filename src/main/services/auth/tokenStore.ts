@@ -65,14 +65,21 @@ export function loadStoredAuth(): StoredAuth | null {
 }
 
 export function saveStoredAuth(auth: StoredAuth): void {
+  if (!safeStorage.isEncryptionAvailable()) {
+    // Contract: this store is Keychain-backed. Without OS-level encryption the
+    // session lives in memory only (same posture as voiceKey.ts) — never write
+    // refresh/access tokens or API keys to disk as reversible base64.
+    console.warn(
+      '[auth] safeStorage encryption unavailable — session kept in memory only, not persisted'
+    )
+    clearStoredAuth()
+    return
+  }
   const json = JSON.stringify(auth)
-  const canEncrypt = safeStorage.isEncryptionAvailable()
   const envelope: AuthFileEnvelope = {
     v: 1,
-    enc: canEncrypt,
-    data: canEncrypt
-      ? safeStorage.encryptString(json).toString('base64')
-      : Buffer.from(json, 'utf8').toString('base64')
+    enc: true,
+    data: safeStorage.encryptString(json).toString('base64')
   }
   writeFileAtomic(appAuthPath(), JSON.stringify(envelope), 0o600)
 }
@@ -125,14 +132,28 @@ function parseTimeMs(rfc3339: string | null | undefined): number {
 
 /**
  * Mirror our session into ~/.codex/auth.json (mode 0600, atomic rename).
- * Clobber protection: if an existing file has a strictly newer last_refresh
- * (e.g. the user ran `codex login` after our last refresh), leave it alone.
+ * Clobber protection:
+ *  - if an existing file has a strictly newer last_refresh (e.g. the user ran
+ *    `codex login` after our last refresh), leave it alone;
+ *  - if an existing file belongs to a DIFFERENT account (different refresh
+ *    chain, different/unknown account id), never overwrite it from a
+ *    background refresh — only a deliberate sign-in (allowAccountSwitch) may.
  */
-export function mirrorToCodexAuthJson(auth: StoredAuth): void {
+export function mirrorToCodexAuthJson(
+  auth: StoredAuth,
+  opts: { allowAccountSwitch?: boolean } = {}
+): void {
   try {
     const existing = readCodexAuthJson()
-    if (existing && parseTimeMs(existing.last_refresh) > parseTimeMs(auth.lastRefresh)) {
-      return
+    if (existing) {
+      if (parseTimeMs(existing.last_refresh) > parseTimeMs(auth.lastRefresh)) {
+        return
+      }
+      const tokens = existing.tokens
+      if (tokens && tokens.refresh_token !== auth.refreshToken && !opts.allowAccountSwitch) {
+        const sameAccount = auth.accountId !== null && tokens.account_id === auth.accountId
+        if (!sameAccount) return // someone else's `codex login` — never clobber it
+      }
     }
     const payload: CodexAuthDotJson = {
       OPENAI_API_KEY: auth.openaiApiKey,

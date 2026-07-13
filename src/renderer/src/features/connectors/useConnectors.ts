@@ -36,6 +36,11 @@ export function useConnectors(): UseConnectorsResult {
   const mounted = useRef(true)
 
   const refresh = useCallback(async (): Promise<void> => {
+    if (!window.jarvis) {
+      // non-preload context (plain browser preview)
+      if (mounted.current) setLoading(false)
+      return
+    }
     try {
       const next = await window.jarvis.connectors.list()
       if (mounted.current) setCards(next)
@@ -47,12 +52,14 @@ export function useConnectors(): UseConnectorsResult {
   useEffect(() => {
     mounted.current = true
     void refresh()
-    const unsubscribe = window.jarvis.connectors.onChanged((next) => {
-      if (mounted.current) setCards(next)
-    })
+    const unsubscribe = window.jarvis
+      ? window.jarvis.connectors.onChanged((next) => {
+          if (mounted.current) setCards(next)
+        })
+      : null
     return () => {
       mounted.current = false
-      unsubscribe()
+      unsubscribe?.()
     }
   }, [refresh])
 

@@ -4,6 +4,7 @@ import HudShell from './components/hud/HudShell'
 import TranscriptPanel from './components/hud/TranscriptPanel'
 import { ConnectorsPanel } from './features/connectors'
 import { CodexPanel } from './features/codex'
+import { SettingsPanel } from './features/settings'
 import { useVoice, VoiceDock } from './features/voice'
 import { useAppState, useAppDispatch } from './state/appState'
 import type { TranscriptEntry } from '../../shared/types'
@@ -106,7 +107,12 @@ function HudApp(): React.JSX.Element {
     <HudShell
       mode={state.coreMode}
       getLevel={getOrbLevel}
-      topLeft={<IdentityStatus />}
+      topLeft={
+        <>
+          <IdentityStatus />
+          <SettingsPanel onVoiceKeyChanged={() => void voice.refreshLane()} />
+        </>
+      }
       topRight={<ConnectorsPanel />}
       bottomLeft={<TranscriptPanel entries={state.transcript} onReset={resetTranscript} />}
       bottomRight={<CodexPanel />}

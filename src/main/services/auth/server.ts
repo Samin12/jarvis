@@ -62,7 +62,10 @@ export async function startLoginServer(options: LoginServerOptions): Promise<Log
   const port = await listenOnAllowedPort(server)
   const redirectUri = `http://localhost:${port}${CALLBACK_PATH}`
 
+  let tornDown = false
   const teardown = (): void => {
+    if (tornDown) return
+    tornDown = true
     server.close()
     for (const socket of sockets) socket.destroy()
     sockets.clear()
@@ -94,17 +97,24 @@ export async function startLoginServer(options: LoginServerOptions): Promise<Log
         return
       }
 
+      const state = url.searchParams.get('state')
+      const stateValid = state !== null && state === options.expectedState
+
       const oauthError = url.searchParams.get('error')
       if (oauthError) {
         const description = url.searchParams.get('error_description') ?? ''
         sendHtml(res, 400, errorPage(`${oauthError}${description ? `: ${description}` : ''}`))
-        settle(new Error(`Authorization failed: ${oauthError} ${description}`.trim()))
+        // Only a callback carrying our state may abort the flow — any local
+        // process (or a web page poking localhost) can fabricate an ?error=
+        // request, so stray ones must not kill the pending sign-in.
+        if (stateValid) {
+          settle(new Error(`Authorization failed: ${oauthError} ${description}`.trim()))
+        }
         return
       }
 
-      const state = url.searchParams.get('state')
       const code = url.searchParams.get('code')
-      if (!state || state !== options.expectedState) {
+      if (!stateValid) {
         // Stray or forged request — reject it but keep listening for the real callback.
         sendHtml(res, 400, errorPage('State mismatch. Close this tab and retry from Jarvis.'))
         return
@@ -139,12 +149,22 @@ export async function startLoginServer(options: LoginServerOptions): Promise<Log
     port,
     redirectUri,
     done,
-    cancel: (reason?: string) => settle(new Error(reason ?? 'Sign-in cancelled'))
+    cancel: (reason?: string) => {
+      settle(new Error(reason ?? 'Sign-in cancelled'))
+      // Release the port NOW — a superseding sign-in rebinds immediately, and
+      // 1455/1457 are the only two ports on the redirect-URI allow-list.
+      teardown()
+    }
   }
 }
 
 async function listenOnAllowedPort(server: Server): Promise<number> {
   for (const port of LOGIN_PORTS) {
+    // The registered redirect host is `localhost`, which browsers may resolve
+    // to ::1 first while we serve on 127.0.0.1. If another process is squatting
+    // on [::1]:port it would receive the OAuth callback instead of us — treat
+    // the port as busy and fall through to the next allow-listed one.
+    if (!(await ipv6PortFree(port))) continue
     const ok = await tryListen(server, port)
     if (ok) return port
   }
@@ -152,6 +172,22 @@ async function listenOnAllowedPort(server: Server): Promise<number> {
     `Ports ${LOGIN_PORTS.join(' and ')} are busy (another sign-in or "codex login" running?). ` +
       'Close it and try again.'
   )
+}
+
+/** True unless some other process already listens on [::1]:port. */
+function ipv6PortFree(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const probe = createServer()
+    probe.once('error', (err: NodeJS.ErrnoException) => {
+      // No IPv6 stack (EAFNOSUPPORT/EADDRNOTAVAIL) means nothing can squat
+      // there; only a hard "in use" marks the port as taken.
+      resolve(err.code !== 'EADDRINUSE')
+    })
+    probe.once('listening', () => {
+      probe.close(() => resolve(true))
+    })
+    probe.listen(port, '::1')
+  })
 }
 
 function tryListen(server: Server, port: number): Promise<boolean> {

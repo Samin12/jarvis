@@ -7,6 +7,7 @@ import type { ChatDelta } from '../../../shared/types'
 import { JARVIS_PERSONA } from '../../../shared/persona'
 import { accountIdFromToken, readCodexAuthFile } from './codexAuthFile'
 import { getAccessToken, getAccountId } from '../auth'
+import { extractClaims } from '../auth/jwt'
 
 const RESPONSES_URL = 'https://chatgpt.com/backend-api/codex/responses'
 /** Keep near the bundled @openai/codex-sdk version — the backend gates models on it. */
@@ -140,16 +141,22 @@ export async function streamChatFallback(
 
   try {
     const url = `${RESPONSES_URL}?client_version=${encodeURIComponent(CODEX_CLIENT_VERSION)}`
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${auth.accessToken}`,
+      'ChatGPT-Account-ID': auth.accountId,
+      'OpenAI-Beta': 'responses=experimental',
+      originator: 'codex_cli_rs',
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream'
+    }
+    // FedRAMP workspaces must be routed to the compliance boundary
+    // (research §6b, bearer_auth_provider.rs: chatgpt_account_is_fedramp claim).
+    if (extractClaims(null, auth.accessToken).isFedramp) {
+      headers['X-OpenAI-Fedramp'] = 'true'
+    }
     const res = await fetch(url, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${auth.accessToken}`,
-        'ChatGPT-Account-ID': auth.accountId,
-        'OpenAI-Beta': 'responses=experimental',
-        originator: 'codex_cli_rs',
-        'Content-Type': 'application/json',
-        Accept: 'text/event-stream'
-      },
+      headers,
       body: JSON.stringify(buildBody(req)),
       signal: AbortSignal.timeout(STREAM_TIMEOUT_MS)
     })
@@ -158,7 +165,7 @@ export async function streamChatFallback(
       const body = await res.text().catch(() => '')
       const hint =
         res.status === 401
-          ? 'The ChatGPT session token was rejected — sign in again.'
+          ? 'The ChatGPT session token was rejected — it may have just expired. Try again in a moment; sign in again only if this keeps happening.'
           : res.status === 429
             ? 'Rate limited by the ChatGPT backend — wait a moment.'
             : body.slice(0, 200)

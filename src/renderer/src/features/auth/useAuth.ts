@@ -17,6 +17,7 @@ export function useAuth(): UseAuth {
   const [status, setStatus] = useState<AuthStatus>({ state: 'signed_out' })
 
   useEffect(() => {
+    if (!window.jarvis) return undefined // non-preload context (plain browser preview)
     let mounted = true
     window.jarvis.auth
       .getStatus()
@@ -34,12 +35,14 @@ export function useAuth(): UseAuth {
   }, [])
 
   const signIn = useCallback(async () => {
+    if (!window.jarvis) return
     setStatus({ state: 'authorizing' })
     const final = await window.jarvis.auth.signIn()
     setStatus(final)
   }, [])
 
   const signOut = useCallback(async () => {
+    if (!window.jarvis) return
     await window.jarvis.auth.signOut()
     setStatus({ state: 'signed_out' })
   }, [])

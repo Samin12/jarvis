@@ -52,7 +52,12 @@ export async function getAccessToken(): Promise<string | null> {
   if (exp === null || exp - Date.now() < REFRESH_MARGIN_MS) {
     await ensureRefreshed()
   }
-  return stored?.accessToken ?? null
+  if (!stored) return null
+  // A transient refresh failure can leave a hard-expired token behind — report
+  // "no token right now" rather than handing callers a guaranteed 401.
+  const expAfterRefresh = tokenExpiryMs(stored.accessToken)
+  if (expAfterRefresh !== null && expAfterRefresh <= Date.now()) return null
+  return stored.accessToken
 }
 
 /** chatgpt_account_id — send as ChatGPT-Account-ID header on backend-api calls. */
@@ -136,11 +141,12 @@ async function signIn(): Promise<AuthStatus> {
   status = { state: 'authorizing' }
   pushStatus()
 
+  let flow: LoginServerHandle | null = null
   try {
     const pkce = generatePkce()
     const state = generateState()
 
-    const flow = await startLoginServer({
+    flow = await startLoginServer({
       expectedState: state,
       onCode: async (code, redirectUri) => {
         const tokens = await exchangeCode({
@@ -162,7 +168,8 @@ async function signIn(): Promise<AuthStatus> {
           lastRefresh: new Date().toISOString()
         }
         saveStoredAuth(next)
-        mirrorToCodexAuthJson(next)
+        // A deliberate sign-in may switch the Codex CLI session to this account.
+        mirrorToCodexAuthJson(next, { allowAccountSwitch: true })
         stored = next
       }
     })
@@ -181,10 +188,15 @@ async function signIn(): Promise<AuthStatus> {
     await flow.done
     recomputeStatus()
   } catch (err) {
+    // A newer sign-in (or a sign-out) already replaced this flow — its status
+    // is live; a stale rejection must not clobber it with an error state.
+    if (flow !== null && activeFlow !== flow) {
+      return status
+    }
     const message = err instanceof Error ? err.message : String(err)
     status = { state: 'error', message }
   } finally {
-    activeFlow = null
+    if (activeFlow === flow) activeFlow = null
   }
 
   pushStatus()
@@ -216,15 +228,58 @@ function ensureRefreshed(): Promise<void> {
   return refreshInFlight
 }
 
+/**
+ * Codex CLI shares our refresh-token chain through the ~/.codex/auth.json
+ * mirror and rotates it on its own refreshes. Returns the newer on-disk
+ * session when the file holds a different refresh token for the SAME account,
+ * else null — adoption never switches identity.
+ */
+function readRotatedCodexAuth(current: StoredAuth): StoredAuth | null {
+  const adopted = adoptCodexAuthJson()
+  if (!adopted) return null
+  if (adopted.refreshToken === current.refreshToken) return null
+  if (!adopted.accountId || !current.accountId || adopted.accountId !== current.accountId) {
+    return null
+  }
+  // Keep the Platform key we already resolved when the file carries none.
+  if (!adopted.openaiApiKey && current.openaiApiKey) {
+    return { ...adopted, openaiApiKey: current.openaiApiKey, apiKeySource: current.apiKeySource }
+  }
+  return adopted
+}
+
 async function doRefresh(): Promise<void> {
-  if (!stored) return
+  let base = stored
+  if (!base) return
+
+  // Re-adopt ~/.codex/auth.json first: if Codex CLI rotated the shared refresh
+  // token since our last save, refreshing with the superseded one would trip
+  // the auth server's reuse detection and could kill the whole grant family.
+  const rotated = readRotatedCodexAuth(base)
+  if (rotated) {
+    base = rotated
+    stored = rotated
+    try {
+      saveStoredAuth(rotated)
+    } catch {
+      /* in-memory copy still active */
+    }
+    recomputeStatus()
+    pushStatus()
+    const adoptedExp = tokenExpiryMs(rotated.accessToken)
+    if (adoptedExp !== null && adoptedExp - Date.now() >= REFRESH_MARGIN_MS) return
+  }
+
   try {
-    const result = await refreshTokens(stored.refreshToken)
+    const result = await refreshTokens(base.refreshToken)
+    // A signOut() or a new signIn() may have completed while the request was
+    // in flight — that state wins; drop this stale refresh result entirely.
+    if (stored !== base) return
     const next: StoredAuth = {
-      ...stored,
-      idToken: result.idToken ?? stored.idToken,
-      accessToken: result.accessToken ?? stored.accessToken,
-      refreshToken: result.refreshToken ?? stored.refreshToken,
+      ...base,
+      idToken: result.idToken ?? base.idToken,
+      accessToken: result.accessToken ?? base.accessToken,
+      refreshToken: result.refreshToken ?? base.refreshToken,
       lastRefresh: new Date().toISOString()
     }
     if (!next.accountId) {
@@ -236,7 +291,22 @@ async function doRefresh(): Promise<void> {
     recomputeStatus()
     pushStatus()
   } catch (err) {
+    if (stored !== base) return // superseded by signOut/signIn — nothing to clean up
     if (err instanceof RefreshDeadError) {
+      // Codex CLI may have rotated the chain while our request was in flight —
+      // adopt its live session instead of forcing a re-login.
+      const adopted = readRotatedCodexAuth(base)
+      if (adopted) {
+        stored = adopted
+        try {
+          saveStoredAuth(adopted)
+        } catch {
+          /* in-memory copy still active */
+        }
+        recomputeStatus()
+        pushStatus()
+        return
+      }
       // Permanent — force a full re-login.
       clearStoredAuth()
       stored = null

@@ -87,6 +87,18 @@ export class FallbackVoiceClient {
     })
   }
 
+  /**
+   * Speak an out-of-band system update (e.g. a Codex task finishing) without
+   * a user turn: emits a jarvis transcript entry and reads it aloud.
+   */
+  announceSystemUpdate(text: string): void {
+    const trimmed = text.trim()
+    if (!trimmed || this.closed) return
+    this.history.push({ role: 'assistant', text: trimmed })
+    this.events.onTranscript?.({ id: entryId(), role: 'jarvis', text: trimmed, at: Date.now() })
+    this.speak(trimmed)
+  }
+
   /** Synthetic 0..1 level for the orb — speechSynthesis exposes no analyser. */
   getLevel(): number {
     if (!this.speaking) return 0
