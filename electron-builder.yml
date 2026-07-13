@@ -9,8 +9,16 @@ files:
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  - '!docs/*'
 asarUnpack:
   - resources/**
+  # Codex CLI ships a native binary the SDK spawns at runtime — it must live on
+  # disk, not inside app.asar, or dispatch_codex_task cannot launch it.
+  - node_modules/@openai/codex/**
+  - node_modules/@openai/codex-darwin-arm64/**
+  - node_modules/@openai/codex-darwin-x64/**
+  - node_modules/@openai/codex-linux-*/**
+  - node_modules/@openai/codex-win32-*/**
 win:
   executableName: Jarvis
 nsis:
@@ -19,25 +27,32 @@ nsis:
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
 mac:
+  category: public.app-category.productivity
+  target:
+    - target: dmg
+      arch: [arm64]
+    - target: zip
+      arch: [arm64]
+  entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
+  # Ad-hoc signed (identity null) so it launches on Apple Silicon without a paid
+  # Developer ID. Unsigned/un-notarized → users clear Gatekeeper once (see README).
+  identity: null
+  hardenedRuntime: false
+  gatekeeperAssess: false
   extendInfo:
-    - NSCameraUsageDescription: Application requests access to the device's camera.
-    - NSMicrophoneUsageDescription: Application requests access to the device's microphone.
-    - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
-    - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
+    NSMicrophoneUsageDescription: Jarvis listens to your voice so you can talk to it hands-free.
+    NSCameraUsageDescription: Jarvis does not use the camera; this entry is required by the media stack.
+    NSDocumentsFolderUsageDescription: Jarvis (via Codex) can act on files you ask it to work with.
+    NSDownloadsFolderUsageDescription: Jarvis (via Codex) can organize your Downloads when you ask.
   notarize: false
 dmg:
-  artifactName: ${name}-${version}.${ext}
+  artifactName: ${name}-${version}-${arch}.${ext}
 linux:
   target:
     - AppImage
-    - snap
-    - deb
-  maintainer: electronjs.org
+  maintainer: Samin Yasar
   category: Utility
 appImage:
   artifactName: ${name}-${version}.${ext}
 npmRebuild: false
-publish:
-  provider: generic
-  url: https://example.com/auto-updates
