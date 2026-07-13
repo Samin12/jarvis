@@ -20,3 +20,5 @@ Thumbs.db
 *.log
 npm-debug.log*
 .tmp/
+# lint cache
+.eslintcache

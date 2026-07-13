@@ -2,14 +2,29 @@ import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import { registerAuth, getAccountId } from './services/auth'
+import { registerSettings, getSettingsSnapshot } from './services/settings'
+import { registerConnectors, executeTool, setUserIdProvider } from './services/connectors'
+import { registerCodex } from './services/codex'
+import { registerVoice } from './services/voice'
+
+let mainWindow: BrowserWindow | null = null
+
+const getWindow = (): BrowserWindow | null =>
+  mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
 
 function createWindow(): void {
-  // Create the browser window.
-  const mainWindow = new BrowserWindow({
-    width: 900,
-    height: 670,
+  // The HUD is a desktop-only fixed composition (>=1280px assumed by the
+  // design system) — enforce the floor at the window level.
+  mainWindow = new BrowserWindow({
+    width: 1440,
+    height: 900,
+    minWidth: 1440,
+    minHeight: 900,
     show: false,
     autoHideMenuBar: true,
+    backgroundColor: '#07090c',
+    ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const } : {}),
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -18,7 +33,11 @@ function createWindow(): void {
   })
 
   mainWindow.on('ready-to-show', () => {
-    mainWindow.show()
+    mainWindow?.show()
+  })
+
+  mainWindow.on('closed', () => {
+    mainWindow = null
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -35,22 +54,30 @@ function createWindow(): void {
   }
 }
 
-// This method will be called when Electron has finished
-// initialization and is ready to create browser windows.
-// Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
-  // Set app user model id for windows
-  electronApp.setAppUserModelId('com.electron')
+  electronApp.setAppUserModelId('us.aianswer.jarvis')
 
   // Default open or close DevTools by F12 in development
   // and ignore CommandOrControl + R in production.
-  // see https://github.com/alex8088/electron-toolkit/tree/master/packages/utils
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  // IPC test
-  ipcMain.on('ping', () => console.log('pong'))
+  // --- service registration -------------------------------------------------
+  // Order matters: auth first (it needs a ready app for safeStorage and does
+  // startup adoption of ~/.codex/auth.json; voice/connectors read its module
+  // accessors), settings before voice (voice reads the settings snapshot).
+  registerAuth(ipcMain, getWindow)
+  registerSettings(ipcMain)
+  registerConnectors(ipcMain, getWindow)
+  // Composio userId follows the live ChatGPT account (falls back to the
+  // tokenStore read inside the connectors service when this returns null).
+  setUserIdProvider(() => getAccountId())
+  registerCodex(ipcMain, getWindow)
+  registerVoice(ipcMain, getWindow, {
+    executeTool,
+    getSettings: () => getSettingsSnapshot()
+  })
 
   createWindow()
 
@@ -69,6 +96,3 @@ app.on('window-all-closed', () => {
     app.quit()
   }
 })
-
-// In this file you can include the rest of your app's specific main process
-// code. You can also put them in separate files and require them here.

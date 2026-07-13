@@ -224,6 +224,16 @@ button {
 .hud-center {
   grid-area: center;
   pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  min-height: 0;
+}
+
+/* bottom-center control strip (voice dock) — children regain pointer events */
+.hud-dock {
+  pointer-events: auto;
 }
 
 /* --- section heading — typographic, no chrome ----------------------------- */
@@ -1353,4 +1363,124 @@ button {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* ===========================================================================
+   VOICE DOCK — bottom-center control strip (features/voice/VoiceDock emits
+   voice-dock* classNames only; all styling lives here).
+   ======================================================================== */
+
+.voice-dock {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 22px 4px;
+  border-top: 1px solid var(--line-faint);
+  font-size: 8.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  white-space: nowrap;
+}
+
+.voice-dock--listening {
+  border-top-color: oklch(0.62 0.17 265 / 0.4);
+}
+.voice-dock--speaking {
+  border-top-color: oklch(0.78 0.13 80 / 0.4);
+}
+.voice-dock--error {
+  border-top-color: oklch(0.62 0.22 30 / 0.4);
+}
+
+.voice-dock__mic {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+  transition:
+    background 0.2s ease,
+    box-shadow 0.2s ease;
+}
+.voice-dock__mic--open {
+  background: var(--cobalt);
+  box-shadow: 0 0 10px var(--cobalt);
+}
+
+.voice-dock__badge {
+  font-weight: 500;
+  letter-spacing: 0.24em;
+  color: var(--ink-faint);
+}
+.voice-dock__badge--realtime {
+  color: var(--ember-hot);
+}
+.voice-dock__badge--fallback {
+  color: var(--warn);
+}
+
+.voice-dock__btn {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease,
+    background 0.15s ease;
+}
+.voice-dock__btn:hover {
+  border-color: var(--ember);
+  color: var(--ember-hot);
+  background: hsl(var(--accent-h) 50% 60% / 0.06);
+}
+.voice-dock__btn--stop:hover {
+  border-color: var(--err);
+  color: var(--err);
+  background: oklch(0.62 0.22 30 / 0.08);
+}
+
+.voice-dock__hint {
+  color: var(--ink-faint);
+  letter-spacing: 0.1em;
+}
+
+.voice-dock__form {
+  display: flex;
+}
+.voice-dock__input {
+  appearance: none;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  padding: 5px 2px;
+  width: 240px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+.voice-dock__input::placeholder {
+  color: var(--ink-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+.voice-dock__input:focus {
+  border-bottom-color: var(--ember);
+}
+
+.voice-dock__error {
+  color: var(--err);
+  letter-spacing: 0.06em;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

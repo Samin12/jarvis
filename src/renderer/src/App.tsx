@@ -1,15 +1,19 @@
-import { useEffect } from 'react'
-import LoginScreen from './features/auth/LoginScreen'
+import { useCallback, useEffect, useRef } from 'react'
+import { LoginScreen } from './features/auth'
 import HudShell from './components/hud/HudShell'
 import TranscriptPanel from './components/hud/TranscriptPanel'
+import { ConnectorsPanel } from './features/connectors'
+import { CodexPanel } from './features/codex'
+import { useVoice, VoiceDock } from './features/voice'
 import { useAppState, useAppDispatch } from './state/appState'
-import type { CodexTaskRow, ConnectorCard } from '../../shared/types'
+import type { TranscriptEntry } from '../../shared/types'
 
 // ---------------------------------------------------------------------------
 // APP — signed_out → LoginScreen (features/auth); signed_in → the HUD shell
-// with its four edge zones. The zone panels below are visual placeholders
-// reading the shared store; the integration wave swaps in the feature panels
-// (ConnectorsPanel, CodexPanel, voice controls) via the same slots.
+// composed from the real feature panels: TranscriptPanel (bottom-left),
+// ConnectorsPanel (top-right), CodexPanel (bottom-right), VoiceDock (bottom
+// center). The voice hook drives the orb (mode + audio level) and feeds the
+// transcript/lane slices of the shared store.
 // ---------------------------------------------------------------------------
 
 function IdentityStatus(): React.JSX.Element | null {
@@ -35,76 +39,86 @@ function IdentityStatus(): React.JSX.Element | null {
   )
 }
 
-const CONN_DOT: Record<ConnectorCard['status'], string> = {
-  connected: '',
-  connecting: 'stale',
-  disconnected: 'off',
-  not_configured: 'mock',
-  error: 'error'
-}
+function HudApp(): React.JSX.Element {
+  const state = useAppState()
+  const dispatch = useAppDispatch()
 
-function ConnectorsSummary(): React.JSX.Element {
-  const { connectors } = useAppState()
-  const connected = connectors.filter((c) => c.status === 'connected').length
-  return (
-    <section className="block connectors-summary" style={{ width: '100%' }}>
-      <div className="sec-title">
-        <span>Connectors</span>
-        <span className="tick">
-          {connectors.length > 0 ? `${connected}/${connectors.length} LINKED` : 'STANDBY'}
-        </span>
-      </div>
-      {connectors.length === 0 && <div className="panel-empty">no connectors registered</div>}
-      {connectors.map((c) => (
-        <div key={c.slug} className={`conn-row ${c.status}`}>
-          <i className={`status-dot ${CONN_DOT[c.status]}`} />
-          <span className="conn-title">{c.title}</span>
-          {c.detail && <span className="conn-detail">{c.detail}</span>}
-          <span className="conn-state">{c.status.replace('_', ' ')}</span>
-        </div>
-      ))}
-    </section>
+  // Transcript ids we've already appended — lets streaming partials and their
+  // final entries (same id) collapse into in-place updates.
+  const knownIds = useRef(new Set<string>())
+
+  const handleTranscript = useCallback(
+    (entry: TranscriptEntry): void => {
+      if (knownIds.current.has(entry.id)) {
+        dispatch({
+          type: 'transcript/update',
+          id: entry.id,
+          patch: { text: entry.text, at: entry.at, tool: entry.tool }
+        })
+      } else {
+        knownIds.current.add(entry.id)
+        dispatch({ type: 'transcript/append', entry })
+      }
+    },
+    [dispatch]
   )
-}
 
-function taskStateCls(t: CodexTaskRow): string {
-  if (t.state === 'running') return 'running'
-  if (t.state === 'done') return 'done'
-  return 'failed' // failed | cancelled render the err hue
-}
+  const handlePartial = useCallback(
+    (partial: { id: string; role: 'user' | 'jarvis'; text: string }): void => {
+      if (knownIds.current.has(partial.id)) {
+        dispatch({ type: 'transcript/update', id: partial.id, patch: { text: partial.text } })
+      } else {
+        knownIds.current.add(partial.id)
+        dispatch({
+          type: 'transcript/append',
+          entry: { id: partial.id, role: partial.role, text: partial.text, at: Date.now() }
+        })
+      }
+    },
+    [dispatch]
+  )
 
-function CodexZone(): React.JSX.Element {
-  const { codexTasks } = useAppState()
-  const rows = codexTasks.slice(-5)
+  const voice = useVoice({
+    onTranscript: handleTranscript,
+    onPartialTranscript: handlePartial,
+    onCoreModeChange: (mode) => dispatch({ type: 'core/setMode', mode })
+  })
+
+  // lane → store (IdentityStatus + anything else reading voiceLane)
+  useEffect(() => {
+    if (voice.lane) dispatch({ type: 'voice/setLane', lane: voice.lane })
+  }, [voice.lane, dispatch])
+
+  // Real speech envelope for the orb; null hands GraphCore its synthetic one.
+  const voiceActive = voice.active
+  const getVoiceLevel = voice.getLevel
+  const getOrbLevel = useCallback(
+    (): number | null => (voiceActive ? getVoiceLevel() : null),
+    [voiceActive, getVoiceLevel]
+  )
+
+  const resetTranscript = useCallback((): void => {
+    knownIds.current.clear()
+    dispatch({ type: 'transcript/reset' })
+  }, [dispatch])
+
   return (
-    <section className="block codex-zone">
-      <div className="sec-title">
-        <span>Codex Tasks</span>
-        <span className="tick">
-          {codexTasks.length > 0
-            ? `${codexTasks.filter((t) => t.state === 'running').length} RUNNING`
-            : 'IDLE'}
-        </span>
-      </div>
-      {rows.length === 0 && <div className="panel-empty">no tasks dispatched</div>}
-      {rows.map((t) => {
-        const last = t.events[t.events.length - 1]
-        return (
-          <div key={t.taskId} className={`task-row ${taskStateCls(t)}`}>
-            <div className="task-head">
-              <span className="task-prompt">{t.prompt}</span>
-              <span className="task-state">{t.terminal ?? t.state}</span>
-            </div>
-            <span
-              className={`task-bar ${t.state === 'running' ? 'indet' : t.state === 'done' ? 'done' : 'failed'}`}
-            >
-              <i />
-            </span>
-            {last && <span className="task-last">{last.summary}</span>}
-          </div>
+    <HudShell
+      mode={state.coreMode}
+      getLevel={getOrbLevel}
+      topLeft={<IdentityStatus />}
+      topRight={<ConnectorsPanel />}
+      bottomLeft={<TranscriptPanel entries={state.transcript} onReset={resetTranscript} />}
+      bottomRight={<CodexPanel />}
+      statusExtra={
+        voice.active ? (
+          <span className="chip on">lane · {voice.lane ?? 'probing'}</span>
+        ) : (
+          <span className="chip">voice · standby</span>
         )
-      })}
-    </section>
+      }
+      dock={<VoiceDock voice={voice} />}
+    />
   )
 }
 
@@ -133,18 +147,5 @@ export default function App(): React.JSX.Element {
     return <LoginScreen />
   }
 
-  return (
-    <HudShell
-      mode={state.coreMode}
-      topLeft={<IdentityStatus />}
-      topRight={<ConnectorsSummary />}
-      bottomLeft={
-        <TranscriptPanel
-          entries={state.transcript}
-          onReset={() => dispatch({ type: 'transcript/reset' })}
-        />
-      }
-      bottomRight={<CodexZone />}
-    />
-  )
+  return <HudApp />
 }

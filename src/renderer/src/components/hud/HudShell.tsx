@@ -59,6 +59,8 @@ export interface HudShellProps {
   statusExtra?: ReactNode
   /** floats over the orb (callout cards etc.) — pointer-events pass through */
   center?: ReactNode
+  /** bottom-center control strip under the orb (voice dock) */
+  dock?: ReactNode
   /** overlays (report/transcript modal) — rendered above the grain */
   overlay?: ReactNode
 }
@@ -73,6 +75,7 @@ export default function HudShell({
   bottomRight,
   statusExtra,
   center,
+  dock,
   overlay
 }: HudShellProps): React.JSX.Element {
   return (
@@ -113,7 +116,14 @@ export default function HudShell({
           {bottomLeft}
         </div>
 
-        <div className="hud-center">{center}</div>
+        <div className="hud-center">
+          {center}
+          {dock && (
+            <div className="hud-dock boot-stagger" style={{ animationDelay: '0.58s' }}>
+              {dock}
+            </div>
+          )}
+        </div>
 
         <div className="zone zone-br boot-stagger" style={{ animationDelay: '0.46s' }}>
           {bottomRight}
