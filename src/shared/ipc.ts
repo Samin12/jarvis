@@ -10,7 +10,7 @@ export const IPC = {
     signIn: 'auth:sign-in', // invoke -> AuthStatus (resolves when flow completes/fails)
     signOut: 'auth:sign-out', // invoke -> void
     getStatus: 'auth:get-status', // invoke -> AuthStatus
-    statusChanged: 'auth:status-changed', // push AuthStatus
+    statusChanged: 'auth:status-changed' // push AuthStatus
   },
 
   // Voice (owner: agent C)
@@ -22,7 +22,7 @@ export const IPC = {
     chatSend: 'chat:send', // invoke({requestId, text, history}) -> void (deltas pushed)
     chatDelta: 'chat:delta', // push ChatDelta
     // tool bridge: renderer realtime session asks main to run a connector tool
-    executeTool: 'voice:execute-tool', // invoke({name, argsJson}) -> {ok, resultJson}
+    executeTool: 'voice:execute-tool' // invoke({name, argsJson}) -> {ok, resultJson}
   },
 
   // Connectors (owner: agent D)
@@ -31,7 +31,7 @@ export const IPC = {
     connect: 'connectors:connect', // invoke(slug) -> ConnectorCard (resolves on ACTIVE/timeout)
     disconnect: 'connectors:disconnect', // invoke(slug) -> ConnectorCard
     changed: 'connectors:changed', // push ConnectorCard[]
-    voiceTools: 'connectors:voice-tools', // invoke -> flattened function tool schemas for realtime session
+    voiceTools: 'connectors:voice-tools' // invoke -> flattened function tool schemas for realtime session
   },
 
   // Codex (owner: agent E)
@@ -42,11 +42,12 @@ export const IPC = {
     event: 'codex:event', // push {taskId, row: CodexEventRow}
     taskChanged: 'codex:task-changed', // push CodexTaskRow
     loginStatus: 'codex:login-status', // invoke -> {loggedIn: boolean}
+    receipts: 'codex:receipts' // invoke -> CodexRunReceipt[] (run receipt history, newest first)
   },
 
   // Settings
   settings: {
     get: 'settings:get', // invoke -> JarvisSettings
-    update: 'settings:update', // invoke(Partial<JarvisSettings>) -> JarvisSettings
-  },
+    update: 'settings:update' // invoke(Partial<JarvisSettings>) -> JarvisSettings
+  }
 } as const

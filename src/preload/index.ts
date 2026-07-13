@@ -5,11 +5,12 @@ import type {
   AuthStatus,
   ChatDelta,
   CodexEventRow,
+  CodexRunReceipt,
   CodexTaskRow,
   ConnectorCard,
   JarvisSettings,
   RealtimeSessionGrant,
-  VoiceLane,
+  VoiceLane
 } from '../shared/types'
 
 type Unsubscribe = () => void
@@ -26,7 +27,7 @@ const jarvis = {
     signIn: (): Promise<AuthStatus> => ipcRenderer.invoke(IPC.auth.signIn),
     signOut: (): Promise<void> => ipcRenderer.invoke(IPC.auth.signOut),
     getStatus: (): Promise<AuthStatus> => ipcRenderer.invoke(IPC.auth.getStatus),
-    onStatusChanged: (cb: (s: AuthStatus) => void): Unsubscribe => on(IPC.auth.statusChanged, cb),
+    onStatusChanged: (cb: (s: AuthStatus) => void): Unsubscribe => on(IPC.auth.statusChanged, cb)
   },
   voice: {
     mintRealtimeSession: (): Promise<RealtimeSessionGrant | { error: string }> =>
@@ -44,7 +45,7 @@ const jarvis = {
       name: string
       argsJson: string
     }): Promise<{ ok: boolean; resultJson: string }> =>
-      ipcRenderer.invoke(IPC.voice.executeTool, req),
+      ipcRenderer.invoke(IPC.voice.executeTool, req)
   },
   connectors: {
     list: (): Promise<ConnectorCard[]> => ipcRenderer.invoke(IPC.connectors.list),
@@ -54,7 +55,7 @@ const jarvis = {
       ipcRenderer.invoke(IPC.connectors.disconnect, slug),
     onChanged: (cb: (cards: ConnectorCard[]) => void): Unsubscribe =>
       on(IPC.connectors.changed, cb),
-    voiceTools: (): Promise<unknown[]> => ipcRenderer.invoke(IPC.connectors.voiceTools),
+    voiceTools: (): Promise<unknown[]> => ipcRenderer.invoke(IPC.connectors.voiceTools)
   },
   codex: {
     dispatch: (req: {
@@ -69,12 +70,13 @@ const jarvis = {
       on(IPC.codex.event, cb),
     onTaskChanged: (cb: (t: CodexTaskRow) => void): Unsubscribe => on(IPC.codex.taskChanged, cb),
     loginStatus: (): Promise<{ loggedIn: boolean }> => ipcRenderer.invoke(IPC.codex.loginStatus),
+    receipts: (): Promise<CodexRunReceipt[]> => ipcRenderer.invoke(IPC.codex.receipts)
   },
   settings: {
     get: (): Promise<JarvisSettings> => ipcRenderer.invoke(IPC.settings.get),
     update: (patch: Partial<JarvisSettings>): Promise<JarvisSettings> =>
-      ipcRenderer.invoke(IPC.settings.update, patch),
-  },
+      ipcRenderer.invoke(IPC.settings.update, patch)
+  }
 }
 
 export type JarvisBridge = typeof jarvis

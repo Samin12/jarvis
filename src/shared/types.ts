@@ -24,6 +24,9 @@ export type AuthStatus =
 
 export type CoreMode = 'idle' | 'working' | 'listening' | 'speaking' | 'error'
 
+/** Where the D1 key ladder found a Platform API key (mirrors AuthStatus.voiceKeySource). */
+export type VoiceKeySource = 'codex-auth-json' | 'token-exchange' | 'env' | 'settings'
+
 export type VoiceLane = 'realtime' | 'fallback' // realtime = WebRTC full duplex; fallback = text+speechSynthesis
 
 export interface RealtimeSessionGrant {
@@ -72,12 +75,7 @@ export interface ConnectorCard {
 // ---------- Codex ----------
 
 export type CodexTerminalState =
-  | 'success'
-  | 'clean_noop'
-  | 'blocked'
-  | 'approval_required'
-  | 'exhausted'
-  | 'no_progress'
+  'success' | 'clean_noop' | 'blocked' | 'approval_required' | 'exhausted' | 'no_progress'
 
 export interface CodexTaskRow {
   taskId: string
@@ -107,6 +105,20 @@ export interface CodexEventRow {
     | 'turn_completed'
     | 'turn_failed'
   summary: string
+}
+
+/** Finite run boundary attached to every dispatched Codex task (loopy: never act without one). */
+export interface CodexBoundary {
+  maxTurns?: number
+  wallClockMs?: number
+}
+
+/** Payload of IPC.codex.dispatch — mirrors the preload bridge signature exactly. */
+export interface CodexDispatchRequest {
+  prompt: string
+  cwd?: string
+  fullAccess?: boolean
+  boundary?: CodexBoundary
 }
 
 export interface CodexRunReceipt {
