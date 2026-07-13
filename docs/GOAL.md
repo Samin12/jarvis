@@ -20,8 +20,8 @@ Ship a downloadable desktop app ("Jarvis") with a one-time, zero-config user exp
 - [x] P5 Voice: Realtime/GPT Live session + HUD orb + aside transcript panel
 - [x] P6 Connectors: Composio Gmail/Calendar one-click OAuth + tool calls from voice
 - [x] P7 Codex bridge: dispatch tasks to codex CLI, stream results into HUD + speech
-- [ ] P8 Package: buildable zip/DMG, GitHub repo pushed, release published
-- [ ] P9 Verify end-to-end UX; README + onboarding polish
+- [x] P8 Package: buildable zip/DMG, GitHub repo pushed, release published
+- [x] P9 Verify end-to-end UX; README + onboarding polish
 
 ## Loop protocol
 Self-paced /loop (dynamic). Each wake: read this file, check running workflows/tasks, advance the lowest unchecked phase, update checkboxes, re-arm wakeup. Stop when all phases checked.
