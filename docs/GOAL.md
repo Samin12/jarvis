@@ -16,10 +16,10 @@ Ship a downloadable desktop app ("Jarvis") with a one-time, zero-config user exp
 - [x] P1 Research (OAuth flow, GPT Live/Realtime, Composio, Codex programmatic use, loopy, design spec)
 - [x] P2 Architecture + UX plan written (PLAN.md)
 - [x] P3 Scaffold app (Electron + Vite/React; repo at /Users/saminyasar/Jarvis gpt/jarvis)
-- [ ] P4 Login with ChatGPT working end-to-end (PKCE, token store, refresh)
-- [ ] P5 Voice: Realtime/GPT Live session + HUD orb + aside transcript panel
-- [ ] P6 Connectors: Composio Gmail/Calendar one-click OAuth + tool calls from voice
-- [ ] P7 Codex bridge: dispatch tasks to codex CLI, stream results into HUD + speech
+- [x] P4 Login with ChatGPT working end-to-end (PKCE, token store, refresh)
+- [x] P5 Voice: Realtime/GPT Live session + HUD orb + aside transcript panel
+- [x] P6 Connectors: Composio Gmail/Calendar one-click OAuth + tool calls from voice
+- [x] P7 Codex bridge: dispatch tasks to codex CLI, stream results into HUD + speech
 - [ ] P8 Package: buildable zip/DMG, GitHub repo pushed, release published
 - [ ] P9 Verify end-to-end UX; README + onboarding polish
 
