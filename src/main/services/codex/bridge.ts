@@ -6,8 +6,7 @@
  * (loopy: Success | Clean no-op | Blocked | Approval required | Exhausted | No progress),
  * persisted as a run receipt and summarized for voice.
  */
-import { Codex } from '@openai/codex-sdk'
-import type { ThreadEvent, ThreadItem } from '@openai/codex-sdk'
+import type { Codex, ThreadEvent, ThreadItem } from '@openai/codex-sdk'
 import { app } from 'electron'
 import { randomUUID } from 'crypto'
 import type {
@@ -30,8 +29,12 @@ export interface CodexBridgeEmitter {
 
 let codexSingleton: Codex | null = null
 
-function getCodex(): Codex {
+async function getCodex(): Promise<Codex> {
   if (!codexSingleton) {
+    // @openai/codex-sdk is ESM-only (no `require` export condition); electron-vite
+    // externalizes it into the CJS main bundle, so it must be loaded via dynamic
+    // import() rather than a static import (same pattern connectors uses for @composio/core).
+    const { Codex } = await import('@openai/codex-sdk')
     // No apiKey: the child inherits the ChatGPT OAuth session in ~/.codex/auth.json (PLAN D3).
     codexSingleton = new Codex()
   }
@@ -134,7 +137,7 @@ async function runTask(
   let fatalError: string | null = null
 
   try {
-    const thread = getCodex().startThread({
+    const thread = (await getCodex()).startThread({
       workingDirectory: req.cwd || app.getPath('home'),
       skipGitRepoCheck: true,
       sandboxMode: fullAccess ? 'danger-full-access' : 'workspace-write',
