@@ -13,8 +13,8 @@ Ship a downloadable desktop app ("Jarvis") with a one-time, zero-config user exp
 `/Users/saminyasar/Jarvis gpt/jarvis-hud-1.0.1` — orb cores, boot-stagger panels, HUD typography. Reuse the aesthetic, not the local-whisper/claude-runner architecture.
 
 ## Phases
-- [ ] P1 Research (OAuth flow, GPT Live/Realtime, Composio, Codex programmatic use, loopy, design spec)
-- [ ] P2 Architecture + UX plan written (PLAN.md)
+- [x] P1 Research (OAuth flow, GPT Live/Realtime, Composio, Codex programmatic use, loopy, design spec)
+- [x] P2 Architecture + UX plan written (PLAN.md)
 - [ ] P3 Scaffold app (Electron + Vite/React; repo at /Users/saminyasar/Jarvis gpt/jarvis)
 - [ ] P4 Login with ChatGPT working end-to-end (PKCE, token store, refresh)
 - [ ] P5 Voice: Realtime/GPT Live session + HUD orb + aside transcript panel
