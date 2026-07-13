@@ -1,0 +1,22 @@
+# deps
+node_modules/
+# build output
+dist/
+out/
+release/
+.vite/
+# env & secrets
+.env
+.env.*
+!.env.example
+*.local
+# auth tokens (never commit)
+.jarvis/
+auth.json
+# os
+.DS_Store
+Thumbs.db
+# logs
+*.log
+npm-debug.log*
+.tmp/
