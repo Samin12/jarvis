@@ -1,0 +1,199 @@
+/* Connectors panel — follows the HUD design language (docs/research/design-spec.md):
+   edge scrims not boxes, Martian Mono micro-labels, Big Shoulders headers.
+   All colors fall back sanely if the HUD globals are not loaded yet. */
+
+.cx-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 260px;
+  max-width: 360px;
+  padding: 18px 20px;
+  color: var(--text, rgba(235, 238, 245, 0.92));
+  font-family: 'Martian Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.cx-kicker {
+  font-size: 9px;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--text-dim, rgba(235, 238, 245, 0.4));
+}
+
+.cx-section-header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-top: 2px;
+}
+
+.cx-section-title {
+  font-family: 'Big Shoulders', 'Big Shoulders Display', system-ui, sans-serif;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  line-height: 1;
+  color: var(--text, rgba(235, 238, 245, 0.92));
+}
+
+.cx-section-rule {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, var(--text-dim, rgba(235, 238, 245, 0.35)), transparent);
+}
+
+.cx-cards {
+  display: flex;
+  flex-direction: column;
+}
+
+.cx-card {
+  display: grid;
+  grid-template-columns: 10px 1fr auto;
+  grid-template-rows: auto auto;
+  column-gap: 10px;
+  row-gap: 3px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(235, 238, 245, 0.07);
+}
+
+.cx-card:last-child {
+  border-bottom: none;
+}
+
+.cx-dot {
+  grid-row: 1;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  justify-self: center;
+}
+
+.cx-dot--connected {
+  background: var(--ok, #35d07f);
+  box-shadow: 0 0 8px var(--ok, #35d07f);
+}
+
+.cx-dot--connecting {
+  background: var(--warn, #ffb64d);
+  box-shadow: 0 0 8px var(--warn, #ffb64d);
+  animation: cx-pulse 1.1s ease-in-out infinite;
+}
+
+.cx-dot--disconnected {
+  background: rgba(235, 238, 245, 0.22);
+}
+
+.cx-dot--not_configured {
+  background: transparent;
+  border: 1px solid var(--warn, #ffb64d);
+}
+
+.cx-dot--error {
+  background: var(--err, #ff4f5e);
+  box-shadow: 0 0 8px var(--err, #ff4f5e);
+}
+
+@keyframes cx-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scale(0.75);
+  }
+}
+
+.cx-title {
+  grid-row: 1;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.cx-status {
+  font-size: 8px;
+  letter-spacing: 0.2em;
+  margin-left: 8px;
+  text-transform: uppercase;
+  color: var(--text-dim, rgba(235, 238, 245, 0.4));
+}
+
+.cx-status--connected {
+  color: var(--ok, #35d07f);
+}
+
+.cx-status--connecting {
+  color: var(--warn, #ffb64d);
+}
+
+.cx-status--not_configured {
+  color: var(--warn, #ffb64d);
+}
+
+.cx-status--error {
+  color: var(--err, #ff4f5e);
+}
+
+.cx-detail {
+  grid-column: 2 / 4;
+  grid-row: 2;
+  font-size: 9px;
+  line-height: 1.5;
+  letter-spacing: 0.04em;
+  color: var(--text-dim, rgba(235, 238, 245, 0.42));
+  overflow-wrap: anywhere;
+}
+
+.cx-action {
+  grid-row: 1;
+  justify-self: end;
+  appearance: none;
+  background: transparent;
+  border: 1px solid rgba(235, 238, 245, 0.22);
+  border-radius: 2px;
+  color: var(--text, rgba(235, 238, 245, 0.85));
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 8px;
+  letter-spacing: 0.22em;
+  padding: 5px 9px;
+  text-transform: uppercase;
+  transition:
+    border-color 120ms ease,
+    color 120ms ease,
+    opacity 120ms ease;
+}
+
+.cx-action:hover:not(:disabled) {
+  border-color: var(--accent, #6fb7ff);
+  color: var(--accent, #6fb7ff);
+}
+
+.cx-action:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
+.cx-action--disconnect {
+  border-color: rgba(235, 238, 245, 0.12);
+  color: var(--text-dim, rgba(235, 238, 245, 0.45));
+}
+
+.cx-footer-hint {
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  line-height: 1.6;
+  padding-top: 4px;
+  color: var(--warn, #ffb64d);
+}
+
+.cx-empty {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--text-dim, rgba(235, 238, 245, 0.4));
+  padding: 8px 0;
+}
