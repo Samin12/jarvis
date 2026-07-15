@@ -72,6 +72,9 @@ mac:
     NSDocumentsFolderUsageDescription: Jarvis can work only in a folder you explicitly select.
     NSDownloadsFolderUsageDescription: Jarvis can work in Downloads only when you explicitly select it.
   notarize: false
+# electron-builder treats x64 as the default and otherwise omits the architecture
+# from ZIP names. Development downloads must remain explicit and unambiguous.
+artifactName: ${productName}-${version}-${arch}-mac.${ext}
 dmg:
   artifactName: ${name}-${version}-${arch}.${ext}
 linux:

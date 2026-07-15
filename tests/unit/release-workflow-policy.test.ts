@@ -3,6 +3,10 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 const ciWorkflow = readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8')
+const developmentBuilder = readFileSync(
+  new URL('../../electron-builder.yml', import.meta.url),
+  'utf8'
+)
 const draftWorkflow = readFileSync(
   new URL('../../.github/workflows/draft-release.yml', import.meta.url),
   'utf8'
@@ -26,6 +30,9 @@ describe('trusted release workflows', () => {
     expect(ciWorkflow).toContain('retention-days: 1')
     expect(ciWorkflow).toContain('compression-level: 0')
     expect(ciWorkflow).not.toContain('secrets.')
+    expect(developmentBuilder).toContain(
+      'artifactName: ${productName}-${version}-${arch}-mac.${ext}'
+    )
   })
 
   it('uses a short-lived App Store Connect key and rejects retired Apple ID credentials', () => {
