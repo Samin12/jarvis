@@ -6,17 +6,18 @@
 // ---------- Auth ----------
 
 export type AuthStatus =
+  | { state: 'checking' }
   | { state: 'signed_out' }
-  | { state: 'authorizing' } // browser flow in progress
+  | {
+      state: 'authorizing'
+      phase?: 'opening_browser' | 'waiting_for_approval' | 'securing_session'
+      loginId?: string
+    }
   | {
       state: 'signed_in'
       email: string | null
       planType: string | null // e.g. "plus", "pro"
       accountId: string
-      /** Whether a Platform API key is available for Realtime voice (D1 ladder). */
-      voiceKeyAvailable: boolean
-      /** Where the voice key came from, if available. */
-      voiceKeySource: 'codex-auth-json' | 'token-exchange' | 'env' | 'settings' | null
     }
   | { state: 'error'; message: string }
 
@@ -24,17 +25,55 @@ export type AuthStatus =
 
 export type CoreMode = 'idle' | 'working' | 'listening' | 'speaking' | 'error'
 
-/** Where the D1 key ladder found a Platform API key (mirrors AuthStatus.voiceKeySource). */
-export type VoiceKeySource = 'codex-auth-json' | 'token-exchange' | 'env' | 'settings'
+export type VoiceLane = 'realtime' | 'fallback' // realtime = WebRTC; fallback = local speech + app-server
 
-export type VoiceLane = 'realtime' | 'fallback' // realtime = WebRTC full duplex; fallback = text+speechSynthesis
+/** Renderer-generated offer passed to the ChatGPT-authenticated app-server lane. */
+export interface RealtimeStartRequest {
+  requestId: string
+  offerSdp: string
+}
 
-export interface RealtimeSessionGrant {
-  /** Ephemeral client secret (ek_...) minted by main via /v1/realtime/client_secrets */
-  clientSecret: string
-  expiresAt: number // epoch ms
-  model: string // e.g. gpt-realtime-2.1
-  voice: string // e.g. marin
+/** Opaque host session identity plus the remote SDP needed by RTCPeerConnection. */
+export interface RealtimeStartResult {
+  requestId: string
+  sessionId: string
+  answerSdp: string
+}
+
+/** Idempotent stop/cancel request; requestId also cancels a start still in flight. */
+export interface RealtimeStopRequest {
+  requestId: string
+  sessionId?: string
+}
+
+/** Low-volume host lifecycle signal. Realtime media/events stay on WebRTC. */
+export interface RealtimeHostEvent {
+  requestId: string
+  sessionId?: string
+  kind: 'error' | 'closed'
+  message?: string
+  reason?: string
+}
+
+export type LocalVoiceState =
+  | 'unavailable'
+  | 'permission_unknown'
+  | 'permission_denied'
+  | 'ready'
+  | 'listening'
+  | 'transcribing'
+  | 'speaking'
+  | 'error'
+
+export interface LocalVoiceEvent {
+  kind: 'status' | 'partial' | 'final' | 'speech_started' | 'speech_finished' | 'error'
+  state: LocalVoiceState
+  text?: string
+  code?: string
+  message?: string
+  requestId?: string
+  sessionId?: string
+  recoverable?: boolean
 }
 
 export interface TranscriptEntry {
@@ -46,16 +85,24 @@ export interface TranscriptEntry {
   tool?: { name: string; status: 'running' | 'done' | 'error' | 'awaiting_confirmation' }
 }
 
-// ---------- Chat fallback lane (ChatGPT token -> backend-api/codex/responses) ----------
+// ---------- App-server conversation lane ----------
 
-export interface ChatDelta {
+export interface ConversationSendRequest {
   requestId: string
-  kind: 'text_delta' | 'done' | 'error'
+  text: string
+  appIds?: string[]
+}
+
+export interface ConversationDelta {
+  requestId: string
+  kind: 'started' | 'text_delta' | 'done' | 'blocked' | 'error'
   text?: string
+  threadId?: string
+  turnId?: string
   error?: string
 }
 
-// ---------- Connectors (Composio) ----------
+// ---------- Connected ChatGPT Apps ----------
 
 export type ConnectorStatus =
   | 'not_configured' // no auth config exists (e.g. Calendar before one-time setup)
@@ -67,15 +114,44 @@ export type ConnectorStatus =
 export interface ConnectorCard {
   slug: string // toolkit slug, e.g. GMAIL, GOOGLECALENDAR
   title: string // display, e.g. "Gmail"
-  section: 'composio' // reserved for future non-composio sections
+  section: 'apps' | 'composio'
   status: ConnectorStatus
   detail?: string // e.g. connected account email or error text
+}
+
+export interface HostApprovalPreview {
+  approvalId: string
+  operation: string
+  target: string
+  capability: string
+  dataClassification: 'public' | 'account' | 'sensitive' | 'secret'
+  reason: string
+  detail:
+    | { kind: 'command'; command: string; cwd: string }
+    | { kind: 'task_dispatch'; prompt: string; workspace: string }
+    | {
+        kind: 'file_change'
+        changes: Array<{
+          path: string
+          changeType: 'add' | 'delete' | 'update'
+          diff: string
+          movePath: string | null
+        }>
+      }
+    | null
+  expiresAt: number
 }
 
 // ---------- Codex ----------
 
 export type CodexTerminalState =
-  'success' | 'clean_noop' | 'blocked' | 'approval_required' | 'exhausted' | 'no_progress'
+  | 'success'
+  | 'clean_noop'
+  | 'blocked'
+  | 'approval_required'
+  | 'exhausted'
+  | 'no_progress'
+  | 'unknown_outcome'
 
 export interface CodexTaskRow {
   taskId: string
@@ -116,27 +192,29 @@ export interface CodexBoundary {
 /** Payload of IPC.codex.dispatch — mirrors the preload bridge signature exactly. */
 export interface CodexDispatchRequest {
   prompt: string
-  cwd?: string
-  fullAccess?: boolean
+  scopeId?: string
   boundary?: CodexBoundary
 }
 
-export interface CodexRunReceipt {
-  taskId: string
-  promptSha256: string
-  boundary: { maxTurns?: number; wallClockMs?: number }
-  terminal: CodexTerminalState
-  evidence: string
+/** Truthful, host-owned receipt for one reviewed action attempt. */
+export interface ActionReceiptRow {
+  receiptId: string
+  attemptId: string
+  intentHash: string
+  approvalId: string | null
+  operation: string
+  target: string
+  terminal: 'success' | 'denied' | 'blocked' | 'unknown_outcome'
+  verification: 'confirmed' | 'failed' | 'unavailable'
+  providerRequestId: string | null
+  providerResourceId: string | null
+  summary: string
+  createdAt: number
   finishedAt: number
 }
 
 // ---------- Settings ----------
 
 export interface JarvisSettings {
-  voiceModel: 'gpt-realtime-2.1' | 'gpt-realtime-2.1-mini'
-  voice: string // marin, cedar, ...
-  costMode: boolean
   pushToTalkKey: string // e.g. 'Space'
-  /** user-pasted platform key lives ONLY in main (safeStorage); this flags presence */
-  hasManualApiKey: boolean
 }

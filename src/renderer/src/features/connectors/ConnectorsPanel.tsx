@@ -1,7 +1,6 @@
 /**
- * ConnectorsPanel — the Connectors panel with its dedicated COMPOSIO section
- * (PLAN step 4). Cards: name, status dot, CONNECT/DISCONNECT action, detail
- * line. Footer hint appears when the Composio key is missing.
+ * ChatGPT Apps available to the signed-in account. Connection pages open in
+ * the system browser; Jarvis never receives an app password or OAuth secret.
  */
 import type { JSX } from 'react'
 import type { ConnectorCard, ConnectorStatus } from '../../../../shared/types'
@@ -20,10 +19,9 @@ interface CardRowProps {
   card: ConnectorCard
   busy: boolean
   onConnect: (slug: string) => void
-  onDisconnect: (slug: string) => void
 }
 
-function CardRow({ card, busy, onConnect, onDisconnect }: CardRowProps): JSX.Element {
+function CardRow({ card, busy, onConnect }: CardRowProps): JSX.Element {
   const isConnected = card.status === 'connected'
   const canAct = card.status !== 'not_configured' && card.status !== 'connecting' && !busy
 
@@ -36,14 +34,14 @@ function CardRow({ card, busy, onConnect, onDisconnect }: CardRowProps): JSX.Ele
           {busy ? 'working' : STATUS_LABEL[card.status]}
         </span>
       </span>
-      {card.status !== 'not_configured' && (
+      {!isConnected && card.status !== 'not_configured' && (
         <button
           type="button"
-          className={`cx-action${isConnected ? ' cx-action--disconnect' : ''}`}
+          className="cx-action"
           disabled={!canAct}
-          onClick={() => (isConnected ? onDisconnect(card.slug) : onConnect(card.slug))}
+          onClick={() => onConnect(card.slug)}
         >
-          {isConnected ? 'disconnect' : 'connect'}
+          connect
         </button>
       )}
       {card.detail && <span className="cx-detail">{card.detail}</span>}
@@ -52,15 +50,23 @@ function CardRow({ card, busy, onConnect, onDisconnect }: CardRowProps): JSX.Ele
 }
 
 export function ConnectorsPanel(): JSX.Element {
-  const { cards, loading, busySlug, composioKeyMissing, connect, disconnect } = useConnectors()
+  const { cards, loading, refreshing, busySlug, error, connect, refresh } = useConnectors()
 
   return (
     <section className="cx-panel" aria-label="Connectors">
       <div className="cx-kicker">Connectors</div>
 
       <header className="cx-section-header">
-        <h2 className="cx-section-title">COMPOSIO</h2>
+        <h2 className="cx-section-title">CHATGPT APPS</h2>
         <span className="cx-section-rule" aria-hidden="true" />
+        <button
+          type="button"
+          className="cx-refresh"
+          disabled={refreshing}
+          onClick={() => void refresh()}
+        >
+          {refreshing ? 'checking…' : 'refresh'}
+        </button>
       </header>
 
       {loading ? (
@@ -73,18 +79,18 @@ export function ConnectorsPanel(): JSX.Element {
               card={card}
               busy={busySlug === card.slug}
               onConnect={(slug) => void connect(slug)}
-              onDisconnect={(slug) => void disconnect(slug)}
             />
           ))}
         </ul>
       )}
 
-      {composioKeyMissing && (
+      {error && <footer className="cx-footer-hint">{error}</footer>}
+      {!loading && !error && cards.length === 0 && (
         <footer className="cx-footer-hint">
-          Add COMPOSIO_API_KEY to enable connectors — see docs/CONNECTORS.md for the 10-minute
-          setup.
+          No ChatGPT apps are available for this account yet.
         </footer>
       )}
+      <p className="cx-privacy">Connections stay with ChatGPT · opens in your browser</p>
     </section>
   )
 }

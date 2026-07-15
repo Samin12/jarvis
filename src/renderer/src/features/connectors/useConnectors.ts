@@ -1,7 +1,7 @@
 /**
  * useConnectors — renderer hook over the window.jarvis.connectors bridge.
  * Loads cards on mount, subscribes to main-process pushes, and exposes
- * connect/disconnect actions with per-slug busy state.
+ * connect actions with per-slug busy state.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ConnectorCard } from '../../../../shared/types'
@@ -9,30 +9,20 @@ import type { ConnectorCard } from '../../../../shared/types'
 export interface UseConnectorsResult {
   cards: ConnectorCard[]
   loading: boolean
+  refreshing: boolean
   /** slug currently mid connect/disconnect, else null */
   busySlug: string | null
-  /** true when every card reports the Composio API key is missing */
-  composioKeyMissing: boolean
+  error: string | null
   connect: (slug: string) => Promise<void>
-  disconnect: (slug: string) => Promise<void>
   refresh: () => Promise<void>
-}
-
-function keyMissing(cards: ConnectorCard[]): boolean {
-  return (
-    cards.length > 0 &&
-    cards.every(
-      (card) =>
-        card.status === 'not_configured' &&
-        (card.detail ?? '').toLowerCase().includes('composio api key missing')
-    )
-  )
 }
 
 export function useConnectors(): UseConnectorsResult {
   const [cards, setCards] = useState<ConnectorCard[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [busySlug, setBusySlug] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const mounted = useRef(true)
 
   const refresh = useCallback(async (): Promise<void> => {
@@ -41,23 +31,31 @@ export function useConnectors(): UseConnectorsResult {
       if (mounted.current) setLoading(false)
       return
     }
+    setRefreshing(true)
     try {
+      setError(null)
       const next = await window.jarvis.connectors.list()
       if (mounted.current) setCards(next)
+    } catch (cause) {
+      if (mounted.current) setError(cause instanceof Error ? cause.message : String(cause))
     } finally {
-      if (mounted.current) setLoading(false)
+      if (mounted.current) {
+        setLoading(false)
+        setRefreshing(false)
+      }
     }
   }, [])
 
   useEffect(() => {
     mounted.current = true
-    void refresh()
+    const loadTimer = window.setTimeout(() => void refresh(), 0)
     const unsubscribe = window.jarvis
       ? window.jarvis.connectors.onChanged((next) => {
           if (mounted.current) setCards(next)
         })
       : null
     return () => {
+      window.clearTimeout(loadTimer)
       mounted.current = false
       unsubscribe?.()
     }
@@ -65,23 +63,14 @@ export function useConnectors(): UseConnectorsResult {
 
   const connect = useCallback(async (slug: string): Promise<void> => {
     setBusySlug(slug)
+    setError(null)
     try {
       const card = await window.jarvis.connectors.connect(slug)
       if (mounted.current) {
         setCards((prev) => prev.map((c) => (c.slug === card.slug ? card : c)))
       }
-    } finally {
-      if (mounted.current) setBusySlug(null)
-    }
-  }, [])
-
-  const disconnect = useCallback(async (slug: string): Promise<void> => {
-    setBusySlug(slug)
-    try {
-      const card = await window.jarvis.connectors.disconnect(slug)
-      if (mounted.current) {
-        setCards((prev) => prev.map((c) => (c.slug === card.slug ? card : c)))
-      }
+    } catch (cause) {
+      if (mounted.current) setError(cause instanceof Error ? cause.message : String(cause))
     } finally {
       if (mounted.current) setBusySlug(null)
     }
@@ -90,10 +79,10 @@ export function useConnectors(): UseConnectorsResult {
   return {
     cards,
     loading,
+    refreshing,
     busySlug,
-    composioKeyMissing: keyMissing(cards),
+    error,
     connect,
-    disconnect,
     refresh
   }
 }

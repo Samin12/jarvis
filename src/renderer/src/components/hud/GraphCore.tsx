@@ -19,7 +19,6 @@ import type { CoreMode } from '../../../../shared/types'
 // ---------------------------------------------------------------------------
 
 export type BgMode = 'flat' | 'depth' | 'grid' | 'nebula'
-export const BG_MODES: BgMode[] = ['flat', 'depth', 'grid', 'nebula']
 
 // color comes from a slow hue voyage (full spectrum ~70s); modes shape
 // tempo + brightness, error locks the hue to red
@@ -130,9 +129,12 @@ export default function GraphCore({
   const modeRef = useRef<CoreMode>(mode)
   const bgRef = useRef<BgMode>(bgMode)
   const getLevelRef = useRef(getLevel)
-  modeRef.current = mode
-  bgRef.current = bgMode
-  getLevelRef.current = getLevel
+
+  useEffect(() => {
+    modeRef.current = mode
+    bgRef.current = bgMode
+    getLevelRef.current = getLevel
+  }, [mode, bgMode, getLevel])
 
   useEffect(() => {
     const mount = mountRef.current

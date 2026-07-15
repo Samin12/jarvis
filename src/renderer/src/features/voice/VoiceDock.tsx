@@ -12,8 +12,7 @@ export interface VoiceDockProps {
 export function VoiceDock({ voice }: VoiceDockProps): JSX.Element {
   const [draft, setDraft] = useState('')
 
-  const laneLabel =
-    voice.lane === 'realtime' ? 'LIVE' : voice.lane === 'fallback' ? 'FALLBACK' : '—'
+  const laneLabel = voice.lane === 'realtime' ? 'LIVE' : voice.lane === 'fallback' ? 'LOCAL' : '—'
   const laneClass = voice.lane ?? 'probing'
 
   const submitDraft = (e: FormEvent): void => {
@@ -40,7 +39,16 @@ export function VoiceDock({ voice }: VoiceDockProps): JSX.Element {
 
       <span className={`voice-dock__badge voice-dock__badge--${laneClass}`}>{laneLabel}</span>
 
-      {!voice.active ? (
+      {voice.starting ? (
+        <button
+          type="button"
+          className="voice-dock__btn voice-dock__btn--stop"
+          aria-label="Cancel voice startup"
+          onClick={voice.stop}
+        >
+          Cancel
+        </button>
+      ) : !voice.active ? (
         <button
           type="button"
           className="voice-dock__btn voice-dock__btn--start"
@@ -58,6 +66,8 @@ export function VoiceDock({ voice }: VoiceDockProps): JSX.Element {
         </button>
       )}
 
+      {voice.starting && <span className="voice-dock__hint">opening secure voice channel…</span>}
+
       {voice.active && (
         <button
           type="button"
@@ -68,20 +78,31 @@ export function VoiceDock({ voice }: VoiceDockProps): JSX.Element {
         </button>
       )}
 
-      {voice.active && voice.lane === 'realtime' && (
-        <span className="voice-dock__hint">hold Space to talk</span>
-      )}
+      {voice.active &&
+        (voice.lane === 'realtime' ||
+          voice.localVoiceState === 'ready' ||
+          voice.localVoiceState === 'listening' ||
+          voice.localVoiceState === 'speaking') && (
+          <span className="voice-dock__hint">hold Space to talk</span>
+        )}
 
-      {voice.active && voice.lane === 'fallback' && (
+      {voice.active && (
         <form className="voice-dock__form" onSubmit={submitDraft}>
           <input
             className="voice-dock__input"
             type="text"
             value={draft}
+            aria-label="Message Jarvis"
             placeholder="Type to Jarvis…"
             onChange={(e) => setDraft(e.target.value)}
           />
         </form>
+      )}
+
+      {voice.active && voice.localVoiceState === 'permission_denied' && (
+        <span className="voice-dock__error">
+          microphone permission denied · text remains available
+        </span>
       )}
 
       {voice.error && <span className="voice-dock__error">{voice.error}</span>}

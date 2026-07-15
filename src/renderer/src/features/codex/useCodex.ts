@@ -8,9 +8,9 @@
  */
 import { useCallback, useEffect, useReducer, useState } from 'react'
 import type {
+  ActionReceiptRow,
   CodexBoundary,
   CodexEventRow,
-  CodexRunReceipt,
   CodexTaskRow
 } from '../../../../shared/types'
 
@@ -50,13 +50,15 @@ function sortTasks(tasks: CodexTaskRow[]): CodexTaskRow[] {
 export interface UseCodexResult {
   /** newest first */
   tasks: CodexTaskRow[]
-  receipts: CodexRunReceipt[]
+  receipts: ActionReceiptRow[]
   receiptsVisible: boolean
   loggedIn: boolean | null // null = still probing `codex login status`
+  taskEligible: boolean | null // actual host principal availability, not a renderer guess
   dispatch: (
     prompt: string,
-    opts?: { cwd?: string; fullAccess?: boolean; boundary?: CodexBoundary }
+    opts?: { scopeId?: string; boundary?: CodexBoundary }
   ) => Promise<{ taskId: string }>
+  selectWorkspace: () => Promise<{ scopeId: string; path: string } | null>
   cancel: (taskId: string) => Promise<void>
   refresh: () => Promise<void>
   toggleReceipts: () => void
@@ -64,10 +66,13 @@ export interface UseCodexResult {
 
 export function useCodex(): UseCodexResult {
   const [state, dispatchState] = useReducer(codexTasksReducer, { tasks: [] })
-  const [receipts, setReceipts] = useState<CodexRunReceipt[]>([])
+  const [receipts, setReceipts] = useState<ActionReceiptRow[]>([])
   const [receiptsVisible, setReceiptsVisible] = useState(false)
   // Without the preload bridge (plain browser preview) the probe can never run.
   const [loggedIn, setLoggedIn] = useState<boolean | null>(() => (window.jarvis ? null : false))
+  const [taskEligible, setTaskEligible] = useState<boolean | null>(() =>
+    window.jarvis ? null : false
+  )
 
   const refresh = useCallback(async (): Promise<void> => {
     if (!window.jarvis) return // non-preload context (plain browser preview)
@@ -80,8 +85,14 @@ export function useCodex(): UseCodexResult {
     void refresh()
     void window.jarvis.codex
       .loginStatus()
-      .then((s) => setLoggedIn(s.loggedIn))
-      .catch(() => setLoggedIn(false))
+      .then((status) => {
+        setLoggedIn(status.loggedIn)
+        setTaskEligible(status.taskEligible)
+      })
+      .catch(() => {
+        setLoggedIn(false)
+        setTaskEligible(false)
+      })
 
     const offEvent = window.jarvis.codex.onEvent(({ taskId, row }) => {
       dispatchState({ type: 'codex/event', taskId, row })
@@ -118,6 +129,12 @@ export function useCodex(): UseCodexResult {
     await window.jarvis.codex.cancel(taskId)
   }, [])
 
+  const selectWorkspace = useCallback(
+    async (): Promise<{ scopeId: string; path: string } | null> =>
+      window.jarvis.codex.selectWorkspace(),
+    []
+  )
+
   const toggleReceipts = useCallback((): void => {
     setReceiptsVisible((v) => !v)
   }, [])
@@ -127,7 +144,9 @@ export function useCodex(): UseCodexResult {
     receipts,
     receiptsVisible,
     loggedIn,
+    taskEligible,
     dispatch,
+    selectWorkspace,
     cancel,
     refresh,
     toggleReceipts

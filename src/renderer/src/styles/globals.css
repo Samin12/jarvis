@@ -43,7 +43,10 @@ body,
   height: 100%;
 }
 
-html,
+html {
+  font-size: 16px;
+}
+
 body {
   background: var(--bg);
   color: var(--ink);
@@ -236,6 +239,80 @@ button {
   pointer-events: auto;
 }
 
+.mission-center {
+  position: absolute;
+  z-index: 8;
+  bottom: 104px;
+  left: 50%;
+  width: min(430px, 38vw);
+  padding: 16px 18px;
+  pointer-events: auto;
+  text-align: center;
+  background: linear-gradient(180deg, rgb(8 11 18 / 76%), rgb(7 9 14 / 92%));
+  border: 1px solid var(--line);
+  border-top-color: hsl(var(--accent-h) 72% 64% / 0.58);
+  box-shadow: 0 22px 60px rgb(0 0 0 / 38%);
+  transform: translateX(-50%);
+  backdrop-filter: blur(10px);
+}
+
+.mission-branch {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  width: 1px;
+  height: 42px;
+  background: linear-gradient(to top, var(--line), transparent);
+}
+
+.mission-kicker {
+  margin: 0 0 7px;
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+  color: hsl(var(--accent-h) 88% 72%);
+}
+
+.mission-center h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.75rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--white-hot);
+}
+
+.mission-summary {
+  margin: 8px auto 14px;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--ink-dim);
+}
+
+.mission-center button {
+  min-height: 44px;
+  padding: 0 18px;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--white-hot);
+  background: hsl(var(--accent-h) 60% 45% / 0.16);
+  border: 1px solid hsl(var(--accent-h) 75% 65% / 0.55);
+  cursor: pointer;
+}
+
+.mission-center button:hover,
+.mission-center button:focus-visible {
+  background: hsl(var(--accent-h) 72% 54% / 0.28);
+  outline: none;
+  box-shadow: 0 0 0 3px hsl(var(--accent-h) 72% 64% / 0.16);
+}
+
+.mission-center button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
 /* --- section heading — typographic, no chrome ----------------------------- */
 
 .block {
@@ -361,6 +438,22 @@ button {
 
 .id-row .v.hot {
   color: var(--ember-hot);
+}
+
+.identity-signout {
+  align-self: flex-start;
+  margin-top: 3px;
+  padding: 3px 0;
+  color: var(--ink-faint);
+  background: none;
+  border: 0;
+  font-size: 7px;
+  letter-spacing: 0.18em;
+  cursor: pointer;
+}
+
+.identity-signout:hover:not(:disabled) {
+  color: var(--white-hot);
 }
 
 /* --- status line (top center) ---------------------------------------------- */
@@ -719,6 +812,306 @@ button {
 }
 
 /* --- codex task rows (bottom-right zone) -------------------------------------- */
+
+.codex-panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-height: 48vh;
+  min-height: 0;
+}
+
+.codex-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.codex-panel-title {
+  color: var(--ember);
+  font-size: 8px;
+  font-weight: 500;
+  letter-spacing: 0.28em;
+}
+
+.codex-panel-title::after {
+  content: ' / HOST';
+  color: var(--ink-faint);
+  letter-spacing: 0.12em;
+}
+
+.codex-login-warning,
+.codex-compose-error {
+  color: var(--err);
+  font-size: 7px;
+  line-height: 1.5;
+  letter-spacing: 0.08em;
+}
+
+.codex-eligibility-note {
+  margin: 0;
+  color: var(--ink-dim);
+  font-size: 7px;
+  line-height: 1.55;
+  letter-spacing: 0.06em;
+}
+
+.codex-receipts-toggle {
+  margin-left: auto;
+  padding: 4px 7px;
+  color: var(--ink-faint);
+  background: transparent;
+  border: 1px solid var(--line-faint);
+  font-size: 7px;
+  letter-spacing: 0.14em;
+  cursor: pointer;
+}
+
+.codex-receipts-toggle:hover,
+.codex-receipts-toggle--active {
+  color: var(--ember-hot);
+  border-color: var(--line);
+}
+
+.codex-compose {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-bottom: 12px;
+  padding-block: 9px;
+  border-block: 1px solid var(--line-faint);
+}
+
+.codex-workspace {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  color: var(--ink-faint);
+  background: transparent;
+  border: 0;
+  font-size: 7px;
+  letter-spacing: 0.14em;
+  cursor: pointer;
+}
+
+.codex-workspace strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-dim);
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codex-workspace:hover strong {
+  color: var(--white-hot);
+}
+
+.codex-workspace:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.codex-workspace:disabled:hover strong {
+  color: var(--ink-dim);
+}
+
+.codex-compose-row {
+  display: flex;
+  gap: 8px;
+}
+
+.codex-compose-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 2px;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  outline: none;
+  font-family: var(--font-mono);
+  font-size: 8px;
+}
+
+.codex-compose-row input:focus {
+  border-bottom-color: var(--ember-hot);
+}
+
+.codex-compose-row button,
+.codex-cancel-btn {
+  padding: 5px 9px;
+  color: var(--ember-hot);
+  background: hsl(var(--accent-h) 55% 45% / 0.1);
+  border: 1px solid var(--line);
+  font-size: 7px;
+  letter-spacing: 0.14em;
+  cursor: pointer;
+}
+
+.codex-compose-row button:disabled {
+  color: var(--ink-faint);
+  cursor: default;
+  opacity: 0.55;
+}
+
+.codex-empty {
+  padding: 6px 0;
+  color: var(--ink-faint);
+  font-size: 8px;
+  letter-spacing: 0.1em;
+}
+
+.codex-task-list,
+.codex-event-feed,
+.codex-receipt-list,
+.codex-todo-list {
+  list-style: none;
+}
+
+.codex-task-list,
+.codex-receipts {
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.codex-task {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line-faint);
+}
+
+.codex-task-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.codex-task-expand {
+  color: var(--ink-faint);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.codex-task-prompt {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-dim);
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codex-task-time {
+  color: var(--ink-faint);
+  font-size: 7px;
+}
+
+.codex-badge {
+  flex: none;
+  color: var(--ink-faint);
+  font-size: 6.5px;
+  letter-spacing: 0.1em;
+}
+
+.codex-badge--running,
+.codex-badge--success,
+.codex-badge--clean-noop {
+  color: var(--ember-hot);
+}
+
+.codex-badge--blocked,
+.codex-badge--denied,
+.codex-badge--unknown-outcome,
+.codex-badge--cancelled {
+  color: var(--err);
+}
+
+.codex-spinner {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-right: 4px;
+  border: 1px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: login-spin 0.8s linear infinite;
+}
+
+.codex-task-summary,
+.codex-event,
+.codex-receipt-evidence {
+  margin-top: 6px;
+  color: var(--ink-faint);
+  font-size: 7.5px;
+  line-height: 1.5;
+}
+
+.codex-event-feed {
+  margin-left: 13px;
+  padding-left: 8px;
+  border-left: 1px solid var(--line-faint);
+}
+
+.codex-event--command code,
+.codex-mono {
+  color: var(--ink-dim);
+  font-family: var(--font-mono);
+}
+
+.codex-file-badge {
+  margin-right: 6px;
+  color: var(--ink-dim);
+}
+
+.codex-receipts-title {
+  color: var(--ink-faint);
+  font-size: 7px;
+  letter-spacing: 0.14em;
+}
+
+.codex-receipt {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 6px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line-faint);
+}
+
+.codex-receipt-time,
+.codex-receipt-hash {
+  color: var(--ink-faint);
+  font-size: 7px;
+}
+
+.codex-receipt-operation {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  color: var(--ink-dim);
+  font-size: 7.5px;
+  font-weight: 500;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codex-receipt-target {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  color: var(--ink-faint);
+  font-size: 7px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codex-receipt-evidence {
+  grid-column: 1 / -1;
+}
 
 .task-row {
   display: flex;
@@ -1272,63 +1665,216 @@ button {
   color: var(--ink);
 }
 
-/* --- login screen (features/auth/LoginScreen) --------------------------------
-   LoginScreen ships minimal inline styles and login-* classNames precisely so
-   this stylesheet can pull it into the design language — hence !important. */
-
 .login-screen {
-  background: var(--bg) !important;
-  color: var(--ink) !important;
-  font-family: var(--font-mono) !important;
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  background:
+    radial-gradient(circle at 50% 46%, hsl(var(--accent-h) 64% 34% / 0.12), transparent 28%),
+    linear-gradient(135deg, #05070b, var(--bg) 52%, #080a10);
+}
+
+.login-screen::before,
+.login-screen::after {
+  position: absolute;
+  content: '';
+  pointer-events: none;
+}
+
+.login-screen::before {
+  inset: 28px;
+  border: 1px solid var(--line-faint);
+  clip-path: polygon(0 0, 22% 0, 22% 1px, 78% 1px, 78% 0, 100% 0, 100% 100%, 0 100%);
+}
+
+.login-screen::after {
+  inset: 0;
+  opacity: 0.18;
+  background-image: linear-gradient(var(--line-faint) 1px, transparent 1px);
+  background-size: 100% 72px;
+  mask-image: linear-gradient(to bottom, transparent, black 30%, black 70%, transparent);
+}
+
+.login-content {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  width: min(560px, calc(100vw - 64px));
+  min-height: 440px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px;
+  text-align: center;
+}
+
+.login-eyebrow,
+.login-footer,
+.login-progress,
+.login-subhint {
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.login-eyebrow {
+  margin: 0 0 16px;
+  color: hsl(var(--accent-h) 88% 72% / 0.82);
 }
 
 .login-wordmark {
-  font-family: var(--font-display) !important;
-  font-size: 44px !important;
-  font-weight: 600 !important;
-  letter-spacing: 0.55em !important;
-  color: var(--white-hot) !important;
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(3rem, 7vw, 5rem);
+  font-weight: 500;
+  letter-spacing: 0.28em;
+  color: var(--white-hot);
   text-shadow: 0 0 24px hsl(var(--accent-h) 60% 60% / 0.35);
+  transform: translateX(0.14em);
 }
 
-.login-button {
-  border: 1px solid var(--line) !important;
-  border-radius: 0 !important;
-  color: var(--ink-dim) !important;
-  font-family: var(--font-mono) !important;
-  font-size: 9.5px !important;
-  letter-spacing: 0.28em !important;
-  text-transform: uppercase;
-  padding: 10px 22px !important;
+.login-deck {
+  max-width: 420px;
+  margin: 12px 0 32px;
+  font-family: var(--font-display);
+  font-size: 1.375rem;
+  letter-spacing: 0.04em;
+  color: var(--ink-dim);
 }
-.login-button:hover {
-  color: var(--white-hot) !important;
-  border-color: var(--ember) !important;
+
+.login-actions,
+.login-authorizing {
+  display: flex;
+  min-height: 132px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 16px;
+}
+
+.login-progress {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 12px;
+  color: var(--ink-dim);
+}
+
+.login-button,
+.login-secondary {
+  min-height: 44px;
+  padding: 10px 22px;
+  color: var(--ink-dim);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  cursor: pointer;
+}
+.login-button:hover,
+.login-button:focus-visible,
+.login-secondary:hover,
+.login-secondary:focus-visible {
+  color: var(--white-hot);
+  border-color: var(--ember);
+  outline: none;
 }
 
 .login-hint {
-  color: var(--ink-dim) !important;
-  font-size: 9px !important;
-  letter-spacing: 0.18em !important;
-  text-transform: uppercase;
+  margin: 0;
+  color: var(--ink-dim);
+  font-size: 0.8125rem;
 }
 
 .login-subhint {
-  color: var(--ink-faint) !important;
-  font-size: 8px !important;
-  letter-spacing: 0.14em !important;
-  text-transform: uppercase;
+  margin: 0;
+  color: var(--ink-faint);
 }
 
 .login-error {
-  color: var(--err) !important;
-  font-size: 9px !important;
-  letter-spacing: 0.08em !important;
+  max-width: 420px;
+  margin: 0;
+  color: var(--err);
+  font-size: 0.8125rem;
+  line-height: 1.5;
 }
 
 .login-spinner {
-  border: 2px solid var(--line-faint) !important;
-  border-top-color: var(--ember) !important;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--line-faint);
+  border-top-color: var(--ember);
+  border-radius: 50%;
+  animation: login-spin 900ms linear infinite;
+}
+
+.login-core {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  width: 420px;
+  height: 420px;
+  transform: translate(-50%, -50%);
+  opacity: 0.42;
+}
+
+.login-core span {
+  position: absolute;
+  inset: 0;
+  border: 1px solid hsl(var(--accent-h) 72% 64% / 0.18);
+  border-radius: 50%;
+  animation: login-orbit 18s linear infinite;
+}
+
+.login-core span:nth-child(2) {
+  inset: 54px;
+  animation-direction: reverse;
+  animation-duration: 13s;
+}
+
+.login-core span:nth-child(3) {
+  inset: 118px;
+  box-shadow: 0 0 50px hsl(var(--accent-h) 72% 58% / 0.18);
+  animation-duration: 9s;
+}
+
+.login-footer {
+  position: absolute;
+  z-index: 2;
+  right: 48px;
+  bottom: 42px;
+  left: 48px;
+  display: flex;
+  justify-content: space-between;
+  color: var(--ink-faint);
+}
+
+@keyframes login-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes login-orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-height: 760px) {
+  .login-content {
+    min-height: 360px;
+  }
+
+  .login-footer {
+    bottom: 34px;
+  }
 }
 
 /* --- boot choreography ----------------------------------------------------------
@@ -1483,4 +2029,44 @@ button {
   max-width: 320px;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+@media (max-width: 1359px) {
+  .hud {
+    grid-template-columns: 260px minmax(300px, 1fr) 260px;
+    gap: 16px;
+    padding: 24px 28px 22px;
+  }
+
+  .mission-center {
+    bottom: 94px;
+    width: min(390px, 38vw);
+  }
+
+  .voice-dock {
+    gap: 10px;
+    padding-inline: 14px;
+  }
+
+  .voice-dock__input {
+    width: 170px;
+  }
+}
+
+@media (max-width: 1179px) {
+  .hud {
+    grid-template-columns: 240px minmax(300px, 1fr) 240px;
+    gap: 12px;
+    padding-inline: 20px;
+  }
+
+  .mission-center {
+    width: min(360px, 36vw);
+  }
+
+  .identity .id-row .v,
+  .cx-detail,
+  .codex-task-summary {
+    max-width: 180px;
+  }
 }

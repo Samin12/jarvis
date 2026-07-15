@@ -42,9 +42,41 @@
   background: linear-gradient(90deg, var(--text-dim, rgba(235, 238, 245, 0.35)), transparent);
 }
 
+.cx-refresh {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim, rgba(235, 238, 245, 0.46));
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 8px;
+  letter-spacing: 0.14em;
+  padding: 4px 0 4px 4px;
+  text-transform: uppercase;
+}
+
+.cx-refresh:hover:not(:disabled) {
+  color: var(--accent, #6fb7ff);
+}
+
+.cx-refresh:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
 .cx-cards {
   display: flex;
   flex-direction: column;
+  max-height: 34vh;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.cx-privacy {
+  color: var(--text-dim, rgba(235, 238, 245, 0.34));
+  font-size: 8px;
+  letter-spacing: 0.06em;
+  line-height: 1.5;
 }
 
 .cx-card {

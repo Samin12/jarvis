@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { LoginScreen } from './features/auth'
 import HudShell from './components/hud/HudShell'
 import TranscriptPanel from './components/hud/TranscriptPanel'
@@ -8,6 +8,8 @@ import { SettingsPanel } from './features/settings'
 import { useVoice, VoiceDock } from './features/voice'
 import { useAppState, useAppDispatch } from './state/appState'
 import type { TranscriptEntry } from '../../shared/types'
+import { ApprovalOverlay } from './features/approvals'
+import { MissionCenter } from './features/mission'
 
 // ---------------------------------------------------------------------------
 // APP — signed_out → LoginScreen (features/auth); signed_in → the HUD shell
@@ -19,6 +21,7 @@ import type { TranscriptEntry } from '../../shared/types'
 
 function IdentityStatus(): React.JSX.Element | null {
   const { auth, voiceLane } = useAppState()
+  const [signingOut, setSigningOut] = useState(false)
   if (auth.state !== 'signed_in') return null
   return (
     <div className="identity">
@@ -32,10 +35,21 @@ function IdentityStatus(): React.JSX.Element | null {
       </div>
       <div className="id-row">
         <span className="k">voice</span>
-        <span className={`v ${auth.voiceKeyAvailable ? 'hot' : ''}`}>
-          {auth.voiceKeyAvailable ? `realtime · ${auth.voiceKeySource ?? 'key'}` : voiceLane}
+        <span className={`v ${voiceLane === 'realtime' ? 'hot' : ''}`}>
+          {voiceLane === 'realtime' ? 'ChatGPT live' : 'local fallback'}
         </span>
       </div>
+      <button
+        type="button"
+        className="identity-signout"
+        disabled={signingOut}
+        onClick={() => {
+          setSigningOut(true)
+          void window.jarvis.auth.signOut().catch(() => setSigningOut(false))
+        }}
+      >
+        {signingOut ? 'SIGNING OUT…' : 'SIGN OUT'}
+      </button>
     </div>
   )
 }
@@ -103,28 +117,47 @@ function HudApp(): React.JSX.Element {
     dispatch({ type: 'transcript/reset' })
   }, [dispatch])
 
+  const startDailyBrief = useCallback(async (): Promise<void> => {
+    if (voice.starting) return
+    if (!voice.active) await voice.start()
+    voice.sendText(
+      'Good morning, Jarvis. Build my concise daily brief from the connected calendar and inbox sources that are available. Cite each source, say clearly when a source is not connected, and ask before making any change.'
+    )
+  }, [voice])
+
   return (
-    <HudShell
-      mode={state.coreMode}
-      getLevel={getOrbLevel}
-      topLeft={
-        <>
-          <IdentityStatus />
-          <SettingsPanel onVoiceKeyChanged={() => void voice.refreshLane()} />
-        </>
-      }
-      topRight={<ConnectorsPanel />}
-      bottomLeft={<TranscriptPanel entries={state.transcript} onReset={resetTranscript} />}
-      bottomRight={<CodexPanel />}
-      statusExtra={
-        voice.active ? (
-          <span className="chip on">lane · {voice.lane ?? 'probing'}</span>
-        ) : (
-          <span className="chip">voice · standby</span>
-        )
-      }
-      dock={<VoiceDock voice={voice} />}
-    />
+    <>
+      <HudShell
+        mode={state.coreMode}
+        getLevel={getOrbLevel}
+        topLeft={
+          <>
+            <IdentityStatus />
+            <SettingsPanel />
+          </>
+        }
+        topRight={<ConnectorsPanel />}
+        bottomLeft={<TranscriptPanel entries={state.transcript} onReset={resetTranscript} />}
+        bottomRight={<CodexPanel />}
+        statusExtra={
+          voice.active ? (
+            <span className="chip on">lane · {voice.lane ?? 'probing'}</span>
+          ) : (
+            <span className="chip">voice · standby</span>
+          )
+        }
+        center={
+          <MissionCenter
+            mode={state.coreMode}
+            voiceActive={voice.active}
+            voiceStarting={voice.starting}
+            onStart={startDailyBrief}
+          />
+        }
+        dock={<VoiceDock voice={voice} />}
+      />
+      <ApprovalOverlay />
+    </>
   )
 }
 
@@ -153,5 +186,8 @@ export default function App(): React.JSX.Element {
     return <LoginScreen />
   }
 
-  return <HudApp />
+  // The opaque account capability rotates on every verified account transition.
+  // Remount the whole signed-in subtree so hook-local workspace grants, tasks,
+  // receipts, connector cards, and voice clients cannot survive that boundary.
+  return <HudApp key={state.auth.accountId} />
 }

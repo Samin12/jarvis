@@ -1,0 +1,23 @@
+extends: electron-builder.yml
+
+mac:
+  category: public.app-category.productivity
+  # Explicitly override the development config's ad-hoc identity. Omitting this
+  # would silently inherit the signing-disable despite CSC_LINK being present.
+  identity: Developer ID Application
+  forceCodeSigning: true
+  hardenedRuntime: true
+  gatekeeperAssess: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.inherit.plist
+  notarize: true
+  extendInfo:
+    NSMicrophoneUsageDescription: Jarvis listens only while you hold the talk control.
+    NSSpeechRecognitionUsageDescription: Jarvis turns your push-to-talk speech into text for your assistant.
+    NSDocumentsFolderUsageDescription: Jarvis can work only in a folder you explicitly select.
+    NSDownloadsFolderUsageDescription: Jarvis can work in Downloads only when you explicitly select it.
+
+dmg:
+  artifactName: ${name}-${version}-${arch}.${ext}
+
+artifactName: ${name}-${version}-${arch}.${ext}

@@ -1,117 +1,93 @@
-/**
- * Voice service registration — IPC.voice.* handlers.
- * Integration wires this from src/main/index.ts:
- *   registerVoice(ipcMain, getWindow, { executeTool: connectorsExecutor, getSettings })
- */
 import type { BrowserWindow, IpcMain } from 'electron'
 import { IPC } from '../../../shared/ipc'
-import type { JarvisSettings, VoiceLane } from '../../../shared/types'
-import { resolveVoiceKey, setManualApiKey } from './voiceKey'
-import { mintRealtimeSession } from './realtimeSessions'
-import { streamChatFallback, type ChatSendRequest } from './chatFallback'
-import { setManualPlatformApiKey } from '../auth'
-
-export { resolveVoiceKey, setManualApiKey, hasManualApiKey } from './voiceKey'
-export { mintRealtimeSession } from './realtimeSessions'
-export { streamChatFallback } from './chatFallback'
+import type { RealtimeStartRequest, RealtimeStopRequest, VoiceLane } from '../../../shared/types'
+import { assertPlainObject, registerTrustedHandler, requireString } from '../../security'
+import type { JarvisCoreService } from '../core'
+import { LocalVoiceService } from './localVoiceService'
 
 export interface VoiceServiceDeps {
-  /**
-   * Connector tool executor (owned by the connectors service). Integration passes
-   * connectors' executor here; until then tool calls return a clean failure payload.
-   */
-  executeTool?: (name: string, argsJson: string) => Promise<{ ok: boolean; resultJson: string }>
-  /** Settings snapshot provider (settings service / integration). Defaults applied per key. */
-  getSettings?: () => Promise<Partial<JarvisSettings>> | Partial<JarvisSettings>
+  core: JarvisCoreService
 }
 
-const DEFAULT_SETTINGS: Pick<JarvisSettings, 'voiceModel' | 'voice' | 'costMode'> = {
-  voiceModel: 'gpt-realtime-2.1',
-  voice: 'marin',
-  costMode: false
+export interface RegisteredVoiceService {
+  local: LocalVoiceService
+  close(): Promise<void>
 }
 
+/** Register only the narrow, trusted voice bridge exposed by preload. */
 export function registerVoice(
   ipcMain: IpcMain,
   getWindow: () => BrowserWindow | null,
-  deps: VoiceServiceDeps = {}
-): void {
-  const readSettings = async (): Promise<typeof DEFAULT_SETTINGS> => {
-    try {
-      const partial = deps.getSettings ? await deps.getSettings() : {}
-      return {
-        voiceModel: partial.voiceModel ?? DEFAULT_SETTINGS.voiceModel,
-        voice: partial.voice ?? DEFAULT_SETTINGS.voice,
-        costMode: partial.costMode ?? DEFAULT_SETTINGS.costMode
-      }
-    } catch {
-      return DEFAULT_SETTINGS
+  deps: VoiceServiceDeps
+): RegisteredVoiceService {
+  const local = new LocalVoiceService()
+
+  registerTrustedHandler(ipcMain, IPC.voice.laneAvailable, getWindow, (): VoiceLane =>
+    deps.core.canStartRealtime() ? 'realtime' : 'fallback'
+  )
+
+  registerTrustedHandler(ipcMain, IPC.voice.realtimeStart, getWindow, (_event, raw: unknown) =>
+    deps.core.startRealtime(parseRealtimeStart(raw))
+  )
+  registerTrustedHandler(ipcMain, IPC.voice.realtimeStop, getWindow, (_event, raw: unknown) =>
+    deps.core.stopRealtime(parseRealtimeStop(raw), 'client_stop')
+  )
+
+  registerTrustedHandler(ipcMain, IPC.voice.localStatus, getWindow, () => local.status())
+  registerTrustedHandler(ipcMain, IPC.voice.localPermission, getWindow, () =>
+    local.requestPermission()
+  )
+  registerTrustedHandler(ipcMain, IPC.voice.localStart, getWindow, () => local.startListening())
+  registerTrustedHandler(ipcMain, IPC.voice.localStop, getWindow, () => local.stopListening())
+  registerTrustedHandler(ipcMain, IPC.voice.localCancel, getWindow, () => local.cancelListening())
+  registerTrustedHandler(ipcMain, IPC.voice.localSpeak, getWindow, (_event, raw: unknown) => {
+    if (typeof raw !== 'string') throw new Error('Speech text must be a string')
+    return local.speak(raw)
+  })
+  registerTrustedHandler(ipcMain, IPC.voice.localStopSpeaking, getWindow, () =>
+    local.stopSpeaking()
+  )
+
+  local.onEvent((event) => {
+    const window = getWindow()
+    if (window && !window.isDestroyed()) window.webContents.send(IPC.voice.localEvent, event)
+  })
+  const offRealtime = deps.core.onRealtimeEvent((event) => {
+    const window = getWindow()
+    if (window && !window.isDestroyed()) window.webContents.send(IPC.voice.realtimeEvent, event)
+  })
+
+  return {
+    local,
+    close: async () => {
+      offRealtime()
+      await Promise.allSettled([
+        deps.core.stopRealtime(undefined, 'voice_service_close'),
+        local.close()
+      ])
     }
   }
+}
 
-  ipcMain.handle(IPC.voice.mintRealtimeSession, async () => {
-    const resolved = await resolveVoiceKey()
-    if (!resolved) {
-      return {
-        error:
-          'No Platform API key available for live voice — using the fallback lane. Paste a key in Settings or run `codex login` to enable full-duplex voice.'
-      }
-    }
-    const settings = await readSettings()
-    const model = settings.costMode ? 'gpt-realtime-2.1-mini' : settings.voiceModel
-    return mintRealtimeSession(resolved.key, { model, voice: settings.voice })
-  })
+const MAX_SDP_CHARS = 256 * 1024
 
-  ipcMain.handle(IPC.voice.laneAvailable, async (): Promise<VoiceLane> => {
-    const resolved = await resolveVoiceKey()
-    return resolved ? 'realtime' : 'fallback'
-  })
+function parseRealtimeStart(raw: unknown): RealtimeStartRequest {
+  assertPlainObject(raw, { name: 'realtime start', maxBytes: MAX_SDP_CHARS + 4_096 })
+  const requestId = requireString(raw.requestId, 'requestId', 128)
+  const offerSdp = requireSdp(raw.offerSdp, 'offerSdp')
+  return { requestId, offerSdp }
+}
 
-  ipcMain.handle(IPC.voice.setManualApiKey, async (_event, key: string) => {
-    const normalized = typeof key === 'string' ? key : ''
-    const accepted = await setManualApiKey(normalized)
-    if (accepted) {
-      try {
-        // Keep AuthStatus.voiceKeyAvailable truthful (auth service exposes this hook).
-        setManualPlatformApiKey(normalized.trim().length > 0 ? normalized.trim() : null)
-      } catch {
-        /* auth service not registered yet — status refresh happens on wiring */
-      }
-    }
-    return accepted
-  })
+function parseRealtimeStop(raw: unknown): RealtimeStopRequest {
+  assertPlainObject(raw, { name: 'realtime stop', maxBytes: 2_048 })
+  const requestId = requireString(raw.requestId, 'requestId', 128)
+  if (raw.sessionId === undefined) return { requestId }
+  return { requestId, sessionId: requireString(raw.sessionId, 'sessionId', 128) }
+}
 
-  ipcMain.handle(IPC.voice.chatSend, (_event, req: ChatSendRequest) => {
-    if (!req || typeof req.requestId !== 'string' || typeof req.text !== 'string') return
-    const sanitized: ChatSendRequest = {
-      requestId: req.requestId,
-      text: req.text,
-      history: Array.isArray(req.history) ? req.history : []
-    }
-    // Fire-and-forget: deltas stream over IPC.voice.chatDelta; errors surface as error deltas.
-    void streamChatFallback(sanitized, (delta) => {
-      const win = getWindow()
-      if (win && !win.isDestroyed()) win.webContents.send(IPC.voice.chatDelta, delta)
-    })
-  })
-
-  ipcMain.handle(IPC.voice.executeTool, async (_event, req: { name: string; argsJson: string }) => {
-    if (!req || typeof req.name !== 'string') {
-      return { ok: false, resultJson: JSON.stringify({ error: 'Malformed tool request.' }) }
-    }
-    if (!deps.executeTool) {
-      return {
-        ok: false,
-        resultJson: JSON.stringify({
-          error: 'Connector tools are not available yet — the connectors service is not wired.'
-        })
-      }
-    }
-    try {
-      return await deps.executeTool(req.name, req.argsJson ?? '{}')
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      return { ok: false, resultJson: JSON.stringify({ error: msg }) }
-    }
-  })
+function requireSdp(value: unknown, name: string): string {
+  if (typeof value !== 'string' || value.length === 0) throw new Error(`${name} is required`)
+  if (value.length > MAX_SDP_CHARS) throw new Error(`${name} exceeds the safety limit`)
+  if (!value.startsWith('v=') || value.includes('\0')) throw new Error(`${name} is malformed`)
+  return value
 }
