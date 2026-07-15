@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 
 import { describe, expect, it } from 'vitest'
 
+const ciWorkflow = readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8')
 const draftWorkflow = readFileSync(
   new URL('../../.github/workflows/draft-release.yml', import.meta.url),
   'utf8'
@@ -12,6 +13,14 @@ const publishWorkflow = readFileSync(
 )
 
 describe('trusted release workflows', () => {
+  it('enables PR ad-hoc signing only in the unprivileged verification job', () => {
+    expect(ciWorkflow).toContain('permissions:\n  contents: read')
+    expect(ciWorkflow).toContain('persist-credentials: false')
+    expect(ciWorkflow).toContain("CSC_FOR_PULL_REQUEST: 'true'")
+    expect(ciWorkflow).toContain("JARVIS_SKIP_APP_BUILD: '1'")
+    expect(ciWorkflow).not.toContain('secrets.')
+  })
+
   it('uses a short-lived App Store Connect key and rejects retired Apple ID credentials', () => {
     expect(draftWorkflow).toContain('APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}')
     expect(draftWorkflow).toContain('APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}')

@@ -38,6 +38,10 @@ jobs:
       - name: Verify ad-hoc package layout and nested native signatures
         env:
           JARVIS_SKIP_APP_BUILD: '1'
+          # electron-builder skips even an explicit ad-hoc identity on pull_request
+          # unless this is set. This job has no secrets, read-only permissions, and
+          # a checkout without persisted credentials.
+          CSC_FOR_PULL_REQUEST: 'true'
         run: |
           npm run build:unpack:mac
           npm run verify:package:dev

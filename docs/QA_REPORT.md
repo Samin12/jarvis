@@ -4,7 +4,7 @@ Local QA is green for every non-interactive release gate. A clean profile, a sim
 
 ## Final local evidence
 
-- `npm run verify:ci` passed release policy, format, lint, typechecks, 172 TypeScript tests across 15 files, 5 Swift protocol tests, 6 native workspace-helper security groups, a production build, and both Electron journeys.
+- `npm run verify:ci` passed release policy, format, lint, typechecks, 173 TypeScript tests across 15 files, 5 Swift protocol tests, 6 native workspace-helper security groups, a production build, and both Electron journeys.
 - Coverage passed at 77.59% statements, 74.82% branches, 82.50% functions, and 81.46% lines.
 - `npm run verify:package:dev` verified the unpacked arm64 app, pinned Codex 0.144.3, both native helpers, the ASAR credential boundary, architecture, signatures, and per-process entitlements.
 - `npm run verify:package:artifacts:dev -- --arch arm64 --dist-dir dist` independently extracted the ZIP and mounted the DMG read-only, verified identical bundle contents, checked all 21 nested Mach-O signatures, scanned for credentials, and launched both copied installs into signed-out onboarding.
@@ -34,6 +34,7 @@ Independent security, correctness, design, engineering, and supply-chain reviews
 5. crash recovery that left intent or approved mutations nonterminal;
 6. push-to-talk key release after focus moved into the composer;
 7. credential-file creation in both the parent and isolated Codex homes.
+8. pull-request packaging that skipped the explicit ad-hoc signing identity on GitHub-hosted runners.
 
 The repository still lacks a branch-protection ruleset and a dedicated committed secret-scanner policy. The pinned CI workflows, direct credential scan, protected release environment, and immutable releases are in place, but repository governance remains a maintainer decision.
 
