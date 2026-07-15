@@ -34,7 +34,12 @@ chooses.
       outside ASAR, with microphone entitlement only on the two processes that capture audio.
 - [x] Local arm64 DMG/ZIP verification copies both apps to an install location and passes isolated
       signed-out onboarding smoke with byte-identical bundle manifests.
+- [x] Native GitHub runners produce and verify ad-hoc Apple-silicon and Intel development previews.
+- [x] Package verification fails closed unless the deterministic 11-component third-party notice
+      tree is present, complete, and byte-identical to its manifest.
 - [x] Repository immutable releases and the protected `release` environment are enabled.
+- [x] `main` requires strict CI plus native arm64/x64 package checks; GitHub Actions is restricted
+      to SHA-pinned GitHub-owned actions.
 - [x] The workflow is committed to GitHub and a pull-request run is green.
 - [ ] A Developer ID-signed, hardened, notarized arm64 artifact passes strict package verification.
 - [ ] A Developer ID-signed, hardened, notarized x64 artifact passes strict package verification.
@@ -50,13 +55,14 @@ Some unchecked items are locally controllable GitHub/install gates. The trusted 
 product-acceptance items also require Apple signing/notarization credentials or interactive account/
 microphone consent. None may be silently reported as passed.
 
-The current trusted workflow creates a draft with four application assets only: arm64 DMG/ZIP and
-x64 DMG/ZIP. Its GitHub `release` environment requires maintainer approval and allows only `main`
-or `v*`; repository immutable releases are enabled, but Apple secrets are not populated yet. It
-does not publish checksums, an
-SBOM/license inventory, protocol/binary hash assets, or a signed manifest. The local action ledger
-is plaintext mode-0600 SQLite; retention, export, delete, and at-rest encryption controls are not
-shipped in 0.2.
+The trusted workflow is now fail-closed around an exact 11-asset draft: arm64 and x64 DMG/ZIP
+installers, two native verification records, a CycloneDX SBOM, normalized license inventory,
+third-party notices archive, release manifest, and `SHA256SUMS`. The manifest also binds the tag,
+commit, title, notes, workflow run, and first nine asset hashes; protected publication re-downloads
+and re-verifies every byte. The GitHub `release` environment requires maintainer approval and
+allows only `main` or `v*`, and immutable releases are enabled. Apple secrets are not populated,
+so no Developer ID/notarized 0.2 draft has been produced yet. The local action ledger is plaintext
+mode-0600 SQLite; retention, export, delete, and at-rest encryption controls are not shipped in 0.2.
 
 ## Explicit non-goals for 0.2
 

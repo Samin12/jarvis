@@ -72,6 +72,8 @@ without persisting an email address. Ambiguous workspace accounts fail closed fo
 
 CI produces evidence and an ad-hoc package for layout testing. The manually dispatched trusted
 workflow builds arm64 and x64 separately, signs nested binaries before the app, enables hardened
-runtime, notarizes, verifies every artifact, then creates a **draft** GitHub release. A separate
-protected promotion re-downloads the immutable draft contract and publishes only if every byte and
-release precondition still matches. Publication remains a human release decision.
+runtime, notarizes, verifies every artifact, then creates an exact 11-asset **draft** GitHub
+release. The draft binds four installers, two native verification records, an SBOM, normalized
+licenses, third-party notices, a release manifest, checksums, and the public release metadata. A
+separate protected promotion re-downloads the immutable draft contract and publishes only if every
+byte and release precondition still matches. Publication remains a human release decision.

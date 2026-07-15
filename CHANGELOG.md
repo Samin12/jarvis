@@ -26,10 +26,18 @@
 
 ### Distribution
 
-- Local arm64 DMG and ZIP builds are ad-hoc-signed development artifacts for verification only.
+- Native Apple-silicon and Intel pull-request previews are ad-hoc-signed development artifacts for
+  verification only.
+- Packaged builds contain a deterministic, fail-closed third-party notice tree for Codex,
+  Electron/Chromium, the renderer runtime, and bundled fonts.
 - The GitHub release workflow requires native arm64 and x64 runners, Developer ID signing,
   hardened runtime, Apple notarization, stapling, copied-install launch verification, and immutable
-  draft evidence before protected publication.
+  draft evidence before protected publication. Its exact 11-asset receipt binds the four
+  installers, native verification records, CycloneDX SBOM, normalized licenses, third-party
+  notices, release manifest, checksums, tag, commit, title, and release notes.
+- `main` is protected by strict native verification/package checks, release publication requires
+  the protected `release` environment, and GitHub Actions accepts only SHA-pinned GitHub-owned
+  actions.
 
 ## 0.1.0 — legacy
 

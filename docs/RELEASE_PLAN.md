@@ -549,9 +549,10 @@ begun, with the receipt naming any partial result.
 4. Current scripts provide `format:check`, `test:coverage`, `test:e2e`, `verify:ci`, and package
    contract smoke. A generic `verify` alias and broader parser/property suites are not shipped.
 5. `build:mac` creates development artifacts after type/build and native staging; the full CI and
-   artifact-verification gates remain separate commands. The trusted workflow currently uploads
-   only DMG and ZIP assets. Checksums, an SBOM/license inventory, protocol/binary hash assets, and
-   a signed release manifest are not yet published and must not be described as release evidence.
+   artifact-verification gates remain separate commands. The trusted workflow creates an exact
+   11-asset draft containing four installers, two native verification records, a CycloneDX SBOM,
+   normalized license inventory, third-party notices, a release manifest, and `SHA256SUMS`.
+   Protected publication re-downloads and verifies every byte and the unchanged public metadata.
 6. Configure hardened runtime, minimal entitlements, nested-binary signing, notarization,
    and stapling from secrets.
    Fail trusted release jobs when signing inputs are absent; keep a separate clearly
@@ -648,7 +649,7 @@ The following production paths must be deleted, not retained as fallback:
  ├─ real Gmail/Calendar read and a denied write
  ├─ chosen-folder Codex clean no-op and approved disposable file change
  ├─ quit/relaunch returns ready with microphone off
- └─ codesign, Gatekeeper, DMG, and ZIP on both architectures; ancillary release assets remain absent
+ └─ codesign, Gatekeeper, DMG, ZIP, and the exact 11-asset receipt on both architectures
 ```
 
 ## Security threat model
@@ -729,10 +730,11 @@ checkout, and freshly fetched `origin/main` to identify the same commit before r
 scripts or loading release secrets. It creates an immutable draft contract. A separate protected
 promotion re-downloads every asset, rechecks its digest/size, native package evidence, tag/main
 identity, quarantine acceptance, and unchanged draft before publication. The current draft
-workflow publishes only four application assets: one DMG and one ZIP for each architecture.
-It does not yet publish checksums, an SBOM/license inventory, protocol/binary hashes, or a signed
-manifest. Missing Apple credentials fail the trusted job; they never silently create a release
-labeled trusted.
+workflow prepares exactly 11 assets: one DMG and one ZIP for each architecture, two native
+verification records, a CycloneDX SBOM, normalized license inventory, third-party notices, a
+release manifest, and `SHA256SUMS`. The manifest and checksum ledger bind the public title, notes,
+tag, commit, workflow run, and asset bytes. Missing Apple credentials fail the trusted job; they
+never silently create a release labeled trusted.
 
 The app-server migration is the only production path on this branch. The old custom auth path is
 removed rather than retained behind a silent fallback or feature flag.
@@ -1075,11 +1077,12 @@ must then pass, from a clean checkout:
 ```text
 format check → lint → typecheck → unit/integration tests → renderer build
 → Electron E2E → arm64/x64 package → archive validation → copied-install smoke
-→ clean-profile UX checklist → real-account manual checklist → four-app-asset inventory
+→ clean-profile UX checklist → real-account manual checklist → exact 11-asset receipt inventory
 ```
 
-Checksum, SBOM/license, protocol/binary-hash, and signed-manifest release gates are not implemented
-yet; they cannot be counted as evidence for the current four-asset draft workflow.
+Checksum, SBOM/license, legal-notice, native-verification, and release-manifest gates are
+implemented and locally tested. They cannot be counted as trusted-release evidence until Apple
+credentials produce a Developer ID-signed, notarized draft on both architectures.
 
 Stop only at a fully evidenced pass, an approval boundary, a repeated external blocker,
 or no measurable progress. Never weaken a gate to make the loop green.

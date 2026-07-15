@@ -97,6 +97,11 @@ Create local ad-hoc artifacts with `npm run build:mac`. A trusted public build u
 `electron-builder.release.yml` and intentionally refuses to run without Apple signing and
 notarization secrets.
 
+Pull requests build native ad-hoc previews on both Apple silicon and Intel GitHub runners. A
+trusted release is a separate, maintainer-approved path: its 11 immutable assets include the four
+installers, per-architecture verification records, a CycloneDX SBOM, normalized license inventory,
+third-party notices, a release manifest, and `SHA256SUMS`.
+
 ## Architecture
 
 - `src/main/services/appServer/` resolves and verifies physical Codex `0.144.3`, starts it with
@@ -114,6 +119,8 @@ notarization secrets.
 - `native/macos-speech/` builds two narrow helpers: bounded NDJSON Swift speech for permissions,
   PTT transcription, and TTS; and a no-entitlement C workspace writer that binds the selected
   root, parent, and target by file descriptor before applying one approved text mutation.
+- `scripts/legal-notices.mjs` assembles and verifies the packaged third-party license tree;
+  `scripts/release-receipts.mjs` binds every trusted-release asset and its public metadata.
 - `src/preload/` is the only renderer bridge. Electron runs with sandboxing, context isolation,
   no Node integration, denied navigation/popups, and audio-only media permission handling.
 
@@ -121,7 +128,8 @@ The reviewed product and engineering contract is in [docs/RELEASE_PLAN.md](docs/
 with the compact [goal](docs/GOAL.md), [implementation plan](docs/PLAN.md),
 [connected-app guide](docs/CONNECTORS.md), [interface system](docs/DESIGN.md), and current
 [QA evidence](docs/QA_REPORT.md) alongside it. Deferred work is in [TODOS.md](TODOS.md), and the
-active conformance loop is recorded in [LOOPS.md](LOOPS.md).
+active conformance loop is recorded in [LOOPS.md](LOOPS.md). Historical protocol and product
+research is indexed by the [gap check](docs/research/gap-check.md).
 
 ## Security reporting
 
