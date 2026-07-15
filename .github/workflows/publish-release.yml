@@ -1,0 +1,302 @@
+name: Promote trusted macOS release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Exact draft tag to publish (for example v0.2.0)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trusted-promotion-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  capture-contract:
+    name: Capture immutable draft contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+    outputs:
+      release_commit: ${{ steps.release-ref.outputs.release_commit }}
+    steps:
+      - name: Refuse dispatches outside main
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != 'refs/heads/main' ]]; then
+            echo "Trusted promotion must be dispatched from main, not $GITHUB_REF." >&2
+            exit 1
+          fi
+
+      - name: Require immutable GitHub releases
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          enabled=$(gh api "repos/$GITHUB_REPOSITORY/immutable-releases" --jq '.enabled')
+          if [[ "$enabled" != 'true' ]]; then
+            echo 'Repository immutable releases must be enabled before promotion.' >&2
+            exit 1
+          fi
+
+      - name: Check out main without credentials
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Require main, tag, and checkout to be identical
+        id: release-ref
+        shell: bash
+        run: |
+          set -euo pipefail
+          git check-ref-format "refs/tags/$RELEASE_TAG"
+          git fetch --force --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+          git fetch --force origin "+refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+
+          head_commit=$(git rev-parse --verify HEAD)
+          main_commit=$(git rev-parse --verify 'refs/remotes/origin/main^{commit}')
+          tag_commit=$(git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}")
+          if [[ "$head_commit" != "$main_commit" || "$tag_commit" != "$main_commit" ]]; then
+            echo "Promotion requires HEAD, origin/main, and $RELEASE_TAG to point to one commit." >&2
+            echo "HEAD=$head_commit origin/main=$main_commit tag=$tag_commit" >&2
+            exit 1
+          fi
+          echo "release_commit=$main_commit" >> "$GITHUB_OUTPUT"
+
+      - name: Capture the exact eleven-asset draft contract
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json tagName,name,isDraft,isPrerelease,assets,body > release-view.json
+          GH_TOKEN='' node scripts/release-policy.mjs capture \
+            --release-view release-view.json \
+            --tag "$RELEASE_TAG" \
+            --commit "$(git rev-parse --verify HEAD)" \
+            --package-json package.json \
+            --repository "$GITHUB_REPOSITORY" \
+            --out release-contract.json
+
+      - name: Preserve the release contract for native verification
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: jarvis-release-contract
+          if-no-files-found: error
+          retention-days: 1
+          path: release-contract.json
+
+  verify-native:
+    name: Reverify ${{ matrix.arch }} draft on native macOS
+    needs: capture-contract
+    environment: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-15
+          - arch: x64
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      TARGET_ARCH: ${{ matrix.arch }}
+      EXPECTED_COMMIT: ${{ needs.capture-contract.outputs.release_commit }}
+    steps:
+      - name: Check out the captured release commit
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ needs.capture-contract.outputs.release_commit }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Revalidate main and tag before running repository code
+        shell: bash
+        run: |
+          set -euo pipefail
+          git check-ref-format "refs/tags/$RELEASE_TAG"
+          git fetch --force --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+          git fetch --force origin "+refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+
+          head_commit=$(git rev-parse --verify HEAD)
+          main_commit=$(git rev-parse --verify 'refs/remotes/origin/main^{commit}')
+          tag_commit=$(git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}")
+          if [[ "$head_commit" != "$EXPECTED_COMMIT" || "$main_commit" != "$EXPECTED_COMMIT" || "$tag_commit" != "$EXPECTED_COMMIT" ]]; then
+            echo 'Release refs changed after contract capture; refusing native verification.' >&2
+            exit 1
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Download the release contract
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: jarvis-release-contract
+          path: promotion-contract
+
+      - name: Download only the two contracted native artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir release-assets
+          node --input-type=module -e '
+            import { readFileSync, writeFileSync } from "node:fs";
+            const contract = JSON.parse(readFileSync("promotion-contract/release-contract.json", "utf8"));
+            const arch = process.env.TARGET_ARCH;
+            const names = contract.assets.filter((asset) => asset.name.includes(`-${arch}.`)).map((asset) => asset.name);
+            if (names.length !== 2 || names.some((name) => name.includes("\n"))) process.exit(1);
+            writeFileSync("expected-assets.txt", `${names.join("\n")}\n`, { mode: 0o600 });
+          '
+          while IFS= read -r asset; do
+            gh release download "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --pattern "$asset" \
+              --dir release-assets
+          done < expected-assets.txt
+          node scripts/release-policy.mjs verify-assets \
+            --contract promotion-contract/release-contract.json \
+            --dir release-assets \
+            --arch "$TARGET_ARCH"
+
+      - name: Verify package identity, nested signatures, notarization, and quarantine
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          npm run verify:package -- \
+            --arch "$TARGET_ARCH" \
+            --dist-dir release-assets
+
+  publish:
+    name: Publish the independently reverified draft
+    needs: [capture-contract, verify-native]
+    environment: release
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      EXPECTED_COMMIT: ${{ needs.capture-contract.outputs.release_commit }}
+    steps:
+      - name: Check out the captured release commit
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ needs.capture-contract.outputs.release_commit }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Revalidate immutable releases, main, and tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          enabled=$(gh api "repos/$GITHUB_REPOSITORY/immutable-releases" --jq '.enabled')
+          [[ "$enabled" == 'true' ]] || { echo 'Repository immutable releases were disabled.' >&2; exit 1; }
+          git check-ref-format "refs/tags/$RELEASE_TAG"
+          git fetch --force --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+          git fetch --force origin "+refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+
+          head_commit=$(git rev-parse --verify HEAD)
+          main_commit=$(git rev-parse --verify 'refs/remotes/origin/main^{commit}')
+          tag_commit=$(git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}")
+          if [[ "$head_commit" != "$EXPECTED_COMMIT" || "$main_commit" != "$EXPECTED_COMMIT" || "$tag_commit" != "$EXPECTED_COMMIT" ]]; then
+            echo 'Release refs changed after native verification; refusing publication.' >&2
+            exit 1
+          fi
+
+      - name: Download the release contract
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: jarvis-release-contract
+          path: promotion-contract
+
+      - name: Fetch the live draft and all eleven contracted assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json tagName,name,isDraft,isPrerelease,assets,body | jq -S . > release-view.json
+
+          mkdir release-assets
+          jq -r '.assets[].name' promotion-contract/release-contract.json > expected-assets.txt
+          while IFS= read -r asset; do
+            gh release download "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --pattern "$asset" \
+              --dir release-assets
+          done < expected-assets.txt
+
+      - name: Recheck the live draft, all assets, and every receipt without a GitHub token
+        env:
+          GH_TOKEN: ''
+        run: |
+          node scripts/release-policy.mjs assert-live-draft \
+            --contract promotion-contract/release-contract.json \
+            --release-view release-view.json
+          node scripts/release-policy.mjs verify-assets \
+            --contract promotion-contract/release-contract.json \
+            --dir release-assets
+          node scripts/release-receipts.mjs verify \
+            --assets-dir release-assets \
+            --package-json package.json \
+            --tag "$RELEASE_TAG" \
+            --commit "$EXPECTED_COMMIT" \
+            --repository "$GITHUB_REPOSITORY" \
+            --release-view release-view.json
+
+      - name: Publish only if the draft is byte-for-byte unchanged
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git fetch --force --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+          git fetch --force origin "+refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          [[ "$(git rev-parse --verify 'refs/remotes/origin/main^{commit}')" == "$EXPECTED_COMMIT" ]]
+          [[ "$(git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}")" == "$EXPECTED_COMMIT" ]]
+
+          gh release view "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json tagName,name,isDraft,isPrerelease,assets,body | jq -S . > release-view-at-publish.json
+          cmp --silent release-view.json release-view-at-publish.json || {
+            echo 'Draft metadata or assets changed immediately before publication.' >&2
+            exit 1
+          }
+
+          gh release edit "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft=false
+
+          gh release view "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json tagName,name,isDraft,isPrerelease,isImmutable,assets,body \
+            | jq -S . > release-view-published.json
+          GH_TOKEN='' node scripts/release-policy.mjs assert-published \
+            --contract promotion-contract/release-contract.json \
+            --release-view release-view-published.json

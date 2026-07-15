@@ -2,6 +2,12 @@
 
 Research date: 2026-07-13. All endpoints and parameter names below were verified against live OpenAI docs (developers.openai.com), the openai/codex source tree, and third-party implementations. Wrong-name traps are called out explicitly.
 
+> **Superseded for Jarvis 0.2 (2026-07-13):** this study analyzed direct Platform Realtime and
+> token exchange before the pinned Codex `rust-v0.144.3` app-server's experimental
+> `thread/realtime/*` WebRTC contract was identified. Jarvis now uses that server-owned,
+> ChatGPT-authenticated path and retains native speech as fallback; it does not mint or expose a
+> Platform client secret. The direct-API material below remains background research only.
+
 ---
 
 ## 1. What GPT-Live actually is

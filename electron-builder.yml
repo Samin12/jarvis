@@ -4,12 +4,23 @@ directories:
   buildResources: build
 files:
   - '!**/.vscode/*'
-  - '!src/*'
+  - '!src/**/*'
+  - '!tests/**/*'
+  - '!.github/**/*'
+  - '!.claude/**/*'
+  - '!native/**/*'
+  - '!scripts/**/*'
+  - '!legal/**/*'
   - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!{vitest.config.ts,playwright.config.ts}'
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
-  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
-  - '!docs/*'
+  - '!**/.jarvis{,/**/*}'
+  - '!**/{auth.json,electron-builder.env}'
+  - '!**/*.{p12,pfx,p8,cer,pem,key,mobileprovision,jks}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json,tsconfig.test.json}'
+  - '!{LOOPS.md,TODOS.md}'
+  - '!docs/**/*'
 asarUnpack:
   - resources/**
   # Codex CLI ships a native binary the SDK spawns at runtime — it must live on
@@ -28,24 +39,45 @@ nsis:
   createDesktopShortcut: always
 mac:
   category: public.app-category.productivity
+  # The bundled Swift speech helper targets macOS 13. Keep the application
+  # deployment floor identical so macOS 12 users cannot install a shell whose
+  # automatic LOCAL fallback cannot launch.
+  minimumSystemVersion: '13.0'
+  sign: ./scripts/macos-sign.mjs
+  extraResources:
+    - from: build/legal
+      to: legal
+    - from: build/native/macos-speech/${env.JARVIS_MACOS_SPEECH_RESOURCE_ARCH}/jarvis-macos-speech
+      to: native/macos-speech/${env.JARVIS_MACOS_SPEECH_RESOURCE_ARCH}/jarvis-macos-speech
+    - from: build/native/macos-speech/${env.JARVIS_MACOS_SPEECH_RESOURCE_ARCH}/jarvis-workspace-helper
+      to: native/macos-speech/${env.JARVIS_MACOS_SPEECH_RESOURCE_ARCH}/jarvis-workspace-helper
+  # electron-builder forwards this path to @electron/osx-sign so the helper is
+  # signed with the same identity as the containing app (ad-hoc in development,
+  # Developer ID in the trusted release overlay).
+  binaries:
+    - Contents/Resources/native/macos-speech/${env.JARVIS_MACOS_SPEECH_RESOURCE_ARCH}/jarvis-macos-speech
+    - Contents/Resources/native/macos-speech/${env.JARVIS_MACOS_SPEECH_RESOURCE_ARCH}/jarvis-workspace-helper
   target:
-    - target: dmg
-      arch: [arm64]
-    - target: zip
-      arch: [arm64]
+    - dmg
+    - zip
   entitlements: build/entitlements.mac.plist
-  entitlementsInherit: build/entitlements.mac.plist
-  # Ad-hoc signed (identity null) so it launches on Apple Silicon without a paid
-  # Developer ID. Unsigned/un-notarized → users clear Gatekeeper once (see README).
-  identity: null
+  entitlementsInherit: build/entitlements.mac.inherit.plist
+  # Development artifacts are explicitly ad-hoc and cannot satisfy the trusted
+  # release gate. A null identity disables re-signing and leaves Electron's
+  # upstream seal invalid after packaging; "-" creates a valid ad-hoc seal.
+  # electron-builder.release.yml overrides this with Developer ID + notarization.
+  identity: '-'
   hardenedRuntime: false
   gatekeeperAssess: false
   extendInfo:
     NSMicrophoneUsageDescription: Jarvis listens to your voice so you can talk to it hands-free.
-    NSCameraUsageDescription: Jarvis does not use the camera; this entry is required by the media stack.
-    NSDocumentsFolderUsageDescription: Jarvis (via Codex) can act on files you ask it to work with.
-    NSDownloadsFolderUsageDescription: Jarvis (via Codex) can organize your Downloads when you ask.
+    NSSpeechRecognitionUsageDescription: Jarvis turns speech into text only while you hold the talk control.
+    NSDocumentsFolderUsageDescription: Jarvis can work only in a folder you explicitly select.
+    NSDownloadsFolderUsageDescription: Jarvis can work in Downloads only when you explicitly select it.
   notarize: false
+# electron-builder treats x64 as the default and otherwise omits the architecture
+# from ZIP names. Development downloads must remain explicit and unambiguous.
+artifactName: ${productName}-${version}-${arch}-mac.${ext}
 dmg:
   artifactName: ${name}-${version}-${arch}.${ext}
 linux:

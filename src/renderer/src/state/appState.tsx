@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useReducer } from 'react'
 import type { Dispatch, ReactNode } from 'react'
 import type {
@@ -25,7 +26,7 @@ export interface AppState {
 }
 
 export const initialAppState: AppState = {
-  auth: { state: 'signed_out' },
+  auth: { state: 'checking' },
   coreMode: 'idle',
   voiceLane: 'fallback',
   transcript: [],
@@ -50,8 +51,24 @@ const TRANSCRIPT_CAP = 500
 
 export function appReducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
-    case 'auth/set':
-      return { ...state, auth: action.status }
+    case 'auth/set': {
+      const previousAccountId = state.auth.state === 'signed_in' ? state.auth.accountId : null
+      const nextAccountId = action.status.state === 'signed_in' ? action.status.accountId : null
+      if (previousAccountId === nextAccountId && nextAccountId) {
+        return { ...state, auth: action.status }
+      }
+      // Every account binding is opaque and rotates on an account transition.
+      // Never carry one operator's transcript, app cards, or task rows into
+      // another operator's HUD (or back onto the signed-out screen).
+      return {
+        ...state,
+        auth: action.status,
+        coreMode: 'idle',
+        transcript: [],
+        connectors: [],
+        codexTasks: []
+      }
+    }
 
     case 'core/setMode':
       return state.coreMode === action.mode ? state : { ...state, coreMode: action.mode }

@@ -1,0 +1,1004 @@
+/**
+ * Supported Codex app-server protocol surface.
+ *
+ * Wire names and shapes are pinned to the generated OpenAI protocol at
+ * `rust-v0.144.3`.  Keep this adapter deliberately smaller than the complete
+ * app-server API: adding a method is a security decision, not a generic RPC
+ * escape hatch.
+ */
+
+export const CODEX_PROTOCOL_VERSION = '0.144.3' as const
+export const CODEX_PROTOCOL_SOURCE_TAG = 'rust-v0.144.3' as const
+/** SHA-256 of the official generated v2 JSON schema bundle at the source tag. */
+export const CODEX_PROTOCOL_SCHEMA_SHA256 =
+  '007e12d25541eb0a50bc778dfcff9e6ab88b3124c9425c4e8f79391d3538bec0' as const
+export const CODEX_CLIENT_REQUEST_TYPES_SHA256 =
+  'b91a43a7f5006cdd0fec35a482f585affc2e1055ffd854936f7b32bd986f6bf2' as const
+export const CODEX_SERVER_REQUEST_TYPES_SHA256 =
+  '30880f1a8da876eec30600ba27560d05ad0db5c645e14564c9c79a2429274f06' as const
+export const CODEX_SERVER_NOTIFICATION_TYPES_SHA256 =
+  '9ed1f223e22f54dff50a57ba15a2e4046b516401dfdd14c0deac8ac3363c37b8' as const
+
+export type JsonPrimitive = string | number | boolean | null
+export type JsonValue = JsonPrimitive | JsonObject | readonly JsonValue[]
+export type JsonObject = { readonly [key: string]: JsonValue }
+export type RequestId = string | number
+
+export interface InitializeCapabilities {
+  experimentalApi: boolean
+  requestAttestation: boolean
+  mcpServerOpenaiFormElicitation?: boolean
+  optOutNotificationMethods?: readonly string[] | null
+}
+
+export interface InitializeParams {
+  clientInfo: {
+    name: string
+    title: string | null
+    version: string
+  }
+  capabilities: InitializeCapabilities | null
+}
+
+export interface InitializeResponse {
+  userAgent: string
+  codexHome: string
+  platformFamily: string
+  platformOs: string
+}
+
+export type PlanType =
+  | 'free'
+  | 'go'
+  | 'plus'
+  | 'pro'
+  | 'prolite'
+  | 'team'
+  | 'self_serve_business_usage_based'
+  | 'business'
+  | 'enterprise_cbp_usage_based'
+  | 'enterprise'
+  | 'edu'
+  | 'unknown'
+
+export type Account =
+  | { type: 'apiKey' }
+  | { type: 'chatgpt'; email: string | null; planType: PlanType }
+  | { type: 'amazonBedrock'; credentialSource: JsonValue }
+
+export interface GetAccountParams {
+  refreshToken?: boolean
+}
+
+export interface GetAccountResponse {
+  account: Account | null
+  requiresOpenaiAuth: boolean
+}
+
+export type LoginAccountParams =
+  | { type: 'apiKey'; apiKey: string }
+  | {
+      type: 'chatgpt'
+      codexStreamlinedLogin?: boolean
+      useHostedLoginSuccessPage?: boolean
+      appBrand?: 'codex' | 'chatgpt' | null
+    }
+  | { type: 'chatgptDeviceCode' }
+
+export type LoginAccountResponse =
+  | { type: 'apiKey' }
+  | { type: 'chatgpt'; loginId: string; authUrl: string }
+  | {
+      type: 'chatgptDeviceCode'
+      loginId: string
+      verificationUrl: string
+      userCode: string
+    }
+
+export interface CancelLoginAccountParams {
+  loginId: string
+}
+
+export interface CancelLoginAccountResponse {
+  status: 'canceled' | 'notFound'
+}
+
+export type EmptyResponse = Record<string, never>
+
+export interface AppBranding {
+  category: string | null
+  developer: string | null
+  website: string | null
+  privacyPolicy: string | null
+  termsOfService: string | null
+  isDiscoverableApp: boolean
+}
+
+export interface AppMetadata {
+  review: JsonValue
+  categories: readonly string[] | null
+  subCategories: readonly string[] | null
+  seoDescription: string | null
+  screenshots: readonly JsonValue[] | null
+  developer: string | null
+  version: string | null
+  versionId: string | null
+  versionNotes: string | null
+  firstPartyType: string | null
+  firstPartyRequiresInstall: boolean | null
+  showInComposerWhenUnlinked: boolean | null
+}
+
+export interface AppInfo {
+  id: string
+  name: string
+  description: string | null
+  logoUrl: string | null
+  logoUrlDark: string | null
+  iconAssets: Readonly<Record<string, string>> | null
+  iconDarkAssets: Readonly<Record<string, string>> | null
+  distributionChannel: string | null
+  branding: AppBranding | null
+  appMetadata: AppMetadata | null
+  labels: Readonly<Record<string, string>> | null
+  installUrl: string | null
+  isAccessible: boolean
+  isEnabled: boolean
+  pluginDisplayNames: readonly string[]
+}
+
+export interface AppsListParams {
+  cursor?: string | null
+  limit?: number | null
+  threadId?: string | null
+  forceRefetch?: boolean
+}
+
+export interface AppsListResponse {
+  data: readonly AppInfo[]
+  nextCursor: string | null
+}
+
+export type ApprovalPolicy =
+  | 'untrusted'
+  | 'on-request'
+  | 'never'
+  | {
+      granular: {
+        sandbox_approval: boolean
+        rules: boolean
+        skill_approval: boolean
+        request_permissions: boolean
+        mcp_elicitations: boolean
+      }
+    }
+
+export type ApprovalsReviewer = 'user' | 'auto_review' | 'guardian_subagent'
+export type SandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access'
+
+/** Experimental dynamic-tool wire types generated by Codex rust-v0.144.3. */
+export interface DynamicToolFunctionSpec {
+  type: 'function'
+  name: string
+  description: string
+  inputSchema: JsonValue
+  deferLoading?: boolean
+}
+
+export type DynamicToolNamespaceTool = DynamicToolFunctionSpec
+
+export interface DynamicToolNamespaceSpec {
+  type: 'namespace'
+  name: string
+  description: string
+  tools: readonly DynamicToolNamespaceTool[]
+}
+
+export type DynamicToolSpec = DynamicToolFunctionSpec | DynamicToolNamespaceSpec
+
+export interface ThreadStartParams {
+  model?: string | null
+  modelProvider?: string | null
+  serviceTier?: string | null
+  cwd?: string | null
+  approvalPolicy?: ApprovalPolicy | null
+  approvalsReviewer?: ApprovalsReviewer | null
+  sandbox?: SandboxMode | null
+  permissions?: string | null
+  runtimeWorkspaceRoots?: readonly string[] | null
+  environments?: readonly JsonValue[] | null
+  config?: Readonly<Record<string, JsonValue>> | null
+  serviceName?: string | null
+  baseInstructions?: string | null
+  developerInstructions?: string | null
+  personality?: 'none' | 'friendly' | 'pragmatic' | null
+  ephemeral?: boolean | null
+  sessionStartSource?: 'startup' | 'clear' | null
+  threadSource?: string | null
+  dynamicTools?: readonly DynamicToolSpec[] | null
+}
+
+export type ThreadStatus =
+  | { type: 'notLoaded' }
+  | { type: 'idle' }
+  | { type: 'systemError' }
+  | { type: 'active'; activeFlags: readonly JsonValue[] }
+
+export interface CodexTurn {
+  id: string
+  items: readonly JsonValue[]
+  itemsView: JsonValue
+  status: 'completed' | 'interrupted' | 'failed' | 'inProgress'
+  error: JsonValue
+  startedAt: number | null
+  completedAt: number | null
+  durationMs: number | null
+}
+
+export interface CodexThread {
+  id: string
+  sessionId: string
+  forkedFromId: string | null
+  parentThreadId: string | null
+  preview: string
+  ephemeral: boolean
+  modelProvider: string
+  createdAt: number
+  updatedAt: number
+  recencyAt: number | null
+  status: ThreadStatus
+  path: string | null
+  cwd: string
+  cliVersion: string
+  source: JsonValue
+  threadSource: string | null
+  agentNickname: string | null
+  agentRole: string | null
+  gitInfo: JsonValue
+  name: string | null
+  turns: readonly CodexTurn[]
+}
+
+export interface ThreadStartResponse {
+  thread: CodexThread
+  model: string
+  modelProvider: string
+  serviceTier: string | null
+  cwd: string
+  instructionSources: readonly string[]
+  approvalPolicy: ApprovalPolicy
+  approvalsReviewer: ApprovalsReviewer
+  sandbox: JsonValue
+  reasoningEffort: JsonValue
+}
+
+export type UserInput =
+  | { type: 'text'; text: string; text_elements: readonly JsonValue[] }
+  | { type: 'image'; detail?: 'low' | 'high' | 'auto'; url: string }
+  | { type: 'localImage'; detail?: 'low' | 'high' | 'auto'; path: string }
+  | { type: 'skill'; name: string; path: string }
+  | { type: 'mention'; name: string; path: string }
+
+export interface TurnStartParams {
+  threadId: string
+  clientUserMessageId?: string | null
+  input: readonly UserInput[]
+  cwd?: string | null
+  approvalPolicy?: ApprovalPolicy | null
+  approvalsReviewer?: ApprovalsReviewer | null
+  sandboxPolicy?: JsonValue
+  model?: string | null
+  serviceTier?: string | null
+  effort?: JsonValue
+  summary?: JsonValue
+  personality?: 'none' | 'friendly' | 'pragmatic' | null
+  outputSchema?: JsonValue
+}
+
+export interface TurnStartResponse {
+  turn: CodexTurn
+}
+
+export interface TurnInterruptParams {
+  threadId: string
+  turnId: string
+}
+
+// Experimental realtime surface pinned to rust-v0.144.3. Jarvis intentionally
+// exposes WebRTC start/stop only over renderer IPC, while keeping the complete
+// protocol contract here so inbound messages remain typed and bounded.
+export type RealtimeConversationVersion = 'v1' | 'v2'
+export type RealtimeOutputModality = 'text' | 'audio'
+export type RealtimeVoice =
+  | 'alloy'
+  | 'arbor'
+  | 'ash'
+  | 'ballad'
+  | 'breeze'
+  | 'cedar'
+  | 'coral'
+  | 'cove'
+  | 'echo'
+  | 'ember'
+  | 'juniper'
+  | 'maple'
+  | 'marin'
+  | 'sage'
+  | 'shimmer'
+  | 'sol'
+  | 'spruce'
+  | 'vale'
+  | 'verse'
+
+const REALTIME_VOICES: ReadonlySet<string> = new Set<RealtimeVoice>([
+  'alloy',
+  'arbor',
+  'ash',
+  'ballad',
+  'breeze',
+  'cedar',
+  'coral',
+  'cove',
+  'echo',
+  'ember',
+  'juniper',
+  'maple',
+  'marin',
+  'sage',
+  'shimmer',
+  'sol',
+  'spruce',
+  'vale',
+  'verse'
+])
+
+export type ThreadRealtimeStartTransport = { type: 'websocket' } | { type: 'webrtc'; sdp: string }
+
+export interface ThreadRealtimeStartParams {
+  threadId: string
+  clientManagedHandoffs?: boolean | null
+  flushTranscriptTailOnSessionEnd?: boolean | null
+  codexResponsesAsItems?: boolean | null
+  codexResponseItemPrefix?: string | null
+  codexResponseHandoffPrefix?: string | null
+  model?: string | null
+  outputModality: RealtimeOutputModality
+  includeStartupContext?: boolean | null
+  prompt?: string | null
+  realtimeSessionId?: string | null
+  transport?: ThreadRealtimeStartTransport | null
+  version?: RealtimeConversationVersion | null
+  voice?: RealtimeVoice | null
+}
+
+export interface ThreadRealtimeAudioChunk {
+  data: string
+  sampleRate: number
+  numChannels: number
+  samplesPerChannel: number | null
+  itemId: string | null
+}
+
+export interface ThreadRealtimeAppendAudioParams {
+  threadId: string
+  audio: ThreadRealtimeAudioChunk
+}
+
+export interface ThreadRealtimeAppendTextParams {
+  threadId: string
+  text: string
+  role: 'user' | 'developer' | 'assistant'
+}
+
+export interface ThreadRealtimeAppendSpeechParams {
+  threadId: string
+  text: string
+}
+
+export interface ThreadRealtimeStopParams {
+  threadId: string
+}
+
+export type ThreadRealtimeListVoicesParams = Record<string, never>
+
+export interface RealtimeVoicesList {
+  v1: readonly RealtimeVoice[]
+  v2: readonly RealtimeVoice[]
+  defaultV1: RealtimeVoice
+  defaultV2: RealtimeVoice
+}
+
+export interface ThreadRealtimeListVoicesResponse {
+  voices: RealtimeVoicesList
+}
+
+export interface ClientRequestMap {
+  initialize: { params: InitializeParams; result: InitializeResponse }
+  'account/read': { params: GetAccountParams; result: GetAccountResponse }
+  'account/login/start': { params: LoginAccountParams; result: LoginAccountResponse }
+  'account/login/cancel': {
+    params: CancelLoginAccountParams
+    result: CancelLoginAccountResponse
+  }
+  'account/logout': { params: undefined; result: EmptyResponse }
+  'app/list': { params: AppsListParams; result: AppsListResponse }
+  'thread/start': { params: ThreadStartParams; result: ThreadStartResponse }
+  'turn/start': { params: TurnStartParams; result: TurnStartResponse }
+  'turn/interrupt': { params: TurnInterruptParams; result: EmptyResponse }
+  'thread/realtime/start': { params: ThreadRealtimeStartParams; result: EmptyResponse }
+  'thread/realtime/appendAudio': {
+    params: ThreadRealtimeAppendAudioParams
+    result: EmptyResponse
+  }
+  'thread/realtime/appendText': {
+    params: ThreadRealtimeAppendTextParams
+    result: EmptyResponse
+  }
+  'thread/realtime/appendSpeech': {
+    params: ThreadRealtimeAppendSpeechParams
+    result: EmptyResponse
+  }
+  'thread/realtime/stop': { params: ThreadRealtimeStopParams; result: EmptyResponse }
+  'thread/realtime/listVoices': {
+    params: ThreadRealtimeListVoicesParams
+    result: ThreadRealtimeListVoicesResponse
+  }
+}
+
+export type ClientMethod = keyof ClientRequestMap
+export type ClientParams<M extends ClientMethod> = ClientRequestMap[M]['params']
+export type ClientResult<M extends ClientMethod> = ClientRequestMap[M]['result']
+
+export type CommandAction =
+  | { type: 'read'; command: string; name: string; path: string }
+  | { type: 'listFiles'; command: string; path: string | null }
+  | { type: 'search'; command: string; query: string | null; path: string | null }
+  | { type: 'unknown'; command: string }
+
+export interface NetworkApprovalContext {
+  host: string
+  protocol: 'http' | 'https' | 'socks5Tcp' | 'socks5Udp'
+}
+
+export interface NetworkPolicyAmendment {
+  host: string
+  action: 'allow' | 'deny'
+}
+
+export interface CommandExecutionApprovalParams {
+  threadId: string
+  turnId: string
+  itemId: string
+  startedAtMs: number
+  approvalId?: string | null
+  environmentId: string | null
+  reason?: string | null
+  networkApprovalContext?: NetworkApprovalContext | null
+  command?: string | null
+  cwd?: string | null
+  commandActions?: readonly CommandAction[] | null
+  proposedExecpolicyAmendment?: readonly string[] | null
+  proposedNetworkPolicyAmendments?: readonly NetworkPolicyAmendment[] | null
+  /** Experimental runtime field omitted from the generated static schema. */
+  additionalPermissions?: JsonValue | null
+  /** Experimental runtime field omitted from the generated static schema. */
+  availableDecisions?: readonly JsonValue[] | null
+}
+
+export interface FileChangeApprovalParams {
+  threadId: string
+  turnId: string
+  itemId: string
+  startedAtMs: number
+  reason?: string | null
+  grantRoot?: string | null
+}
+
+/** Jarvis intentionally exposes only one-shot decisions, never session grants. */
+export interface CommandExecutionApprovalResponse {
+  decision: 'accept' | 'decline' | 'cancel'
+}
+
+export interface FileChangeApprovalResponse {
+  decision: 'accept' | 'decline' | 'cancel'
+}
+
+export interface DynamicToolCallParams {
+  threadId: string
+  turnId: string
+  callId: string
+  namespace: string | null
+  tool: string
+  arguments: JsonValue
+}
+
+/**
+ * Jarvis's transport currently permits bounded text results only. Codex also
+ * defines inputImage, but enabling data-URL image transport is a separate
+ * capability and security decision.
+ */
+export interface DynamicToolCallOutputContentItem {
+  type: 'inputText'
+  text: string
+}
+
+export interface DynamicToolCallResponse {
+  contentItems: readonly DynamicToolCallOutputContentItem[]
+  success: boolean
+}
+
+export interface ServerRequestMap {
+  'item/commandExecution/requestApproval': {
+    params: CommandExecutionApprovalParams
+    result: CommandExecutionApprovalResponse
+  }
+  'item/fileChange/requestApproval': {
+    params: FileChangeApprovalParams
+    result: FileChangeApprovalResponse
+  }
+  'item/tool/call': {
+    params: DynamicToolCallParams
+    result: DynamicToolCallResponse
+  }
+}
+
+export type ServerRequestMethod = keyof ServerRequestMap
+export type ServerRequestParams<M extends ServerRequestMethod> = ServerRequestMap[M]['params']
+export type ServerRequestResult<M extends ServerRequestMethod> = ServerRequestMap[M]['result']
+
+export interface AccountLoginCompletedNotification {
+  loginId: string | null
+  success: boolean
+  error: string | null
+}
+
+export interface AccountUpdatedNotification {
+  authMode:
+    | 'apikey'
+    | 'chatgpt'
+    | 'chatgptAuthTokens'
+    | 'headers'
+    | 'agentIdentity'
+    | 'personalAccessToken'
+    | 'bedrockApiKey'
+    | null
+  planType: PlanType | null
+}
+
+export type PatchChangeKind =
+  { type: 'add' } | { type: 'delete' } | { type: 'update'; move_path: string | null }
+
+export interface FileUpdateChange {
+  path: string
+  kind: PatchChangeKind
+  diff: string
+}
+
+export interface FileChangePatchUpdatedNotification {
+  threadId: string
+  turnId: string
+  itemId: string
+  changes: readonly FileUpdateChange[]
+}
+
+export interface CommandExecutionThreadItem {
+  type: 'commandExecution'
+  id: string
+  command: string
+  cwd: string
+  processId?: string | null
+  source?: 'agent' | 'userShell' | 'unifiedExecStartup' | 'unifiedExecInteraction'
+  status: 'inProgress' | 'completed' | 'failed' | 'declined'
+  commandActions: readonly CommandAction[]
+  aggregatedOutput?: string | null
+  exitCode?: number | null
+  durationMs?: number | null
+}
+
+export interface FileChangeThreadItem {
+  type: 'fileChange'
+  id: string
+  changes: readonly FileUpdateChange[]
+  status: 'inProgress' | 'completed' | 'failed' | 'declined'
+}
+
+export type MutationThreadItem = CommandExecutionThreadItem | FileChangeThreadItem
+
+export interface ItemCompletedNotification {
+  threadId: string
+  turnId: string
+  item: JsonObject
+  completedAtMs: number
+}
+
+export interface ServerRequestResolvedNotification {
+  threadId: string
+  requestId: RequestId
+}
+
+export interface ThreadRealtimeStartedNotification {
+  threadId: string
+  realtimeSessionId: string | null
+  version: RealtimeConversationVersion
+}
+
+export interface ThreadRealtimeItemAddedNotification {
+  threadId: string
+  item: JsonValue
+}
+
+export interface ThreadRealtimeTranscriptDeltaNotification {
+  threadId: string
+  role: string
+  delta: string
+}
+
+export interface ThreadRealtimeTranscriptDoneNotification {
+  threadId: string
+  role: string
+  text: string
+}
+
+export interface ThreadRealtimeOutputAudioDeltaNotification {
+  threadId: string
+  audio: ThreadRealtimeAudioChunk
+}
+
+export interface ThreadRealtimeSdpNotification {
+  threadId: string
+  sdp: string
+}
+
+export interface ThreadRealtimeErrorNotification {
+  threadId: string
+  message: string
+}
+
+export interface ThreadRealtimeClosedNotification {
+  threadId: string
+  reason: string | null
+}
+
+export interface NotificationMap {
+  'account/login/completed': AccountLoginCompletedNotification
+  'account/updated': AccountUpdatedNotification
+  'app/list/updated': { data: readonly AppInfo[] }
+  'thread/started': { thread: CodexThread }
+  'turn/started': { threadId: string; turn: CodexTurn }
+  'turn/completed': { threadId: string; turn: CodexTurn }
+  'item/agentMessage/delta': {
+    threadId: string
+    turnId: string
+    itemId: string
+    delta: string
+  }
+  'item/fileChange/patchUpdated': FileChangePatchUpdatedNotification
+  'item/completed': ItemCompletedNotification
+  'serverRequest/resolved': ServerRequestResolvedNotification
+  'thread/realtime/started': ThreadRealtimeStartedNotification
+  'thread/realtime/itemAdded': ThreadRealtimeItemAddedNotification
+  'thread/realtime/transcript/delta': ThreadRealtimeTranscriptDeltaNotification
+  'thread/realtime/transcript/done': ThreadRealtimeTranscriptDoneNotification
+  'thread/realtime/outputAudio/delta': ThreadRealtimeOutputAudioDeltaNotification
+  'thread/realtime/sdp': ThreadRealtimeSdpNotification
+  'thread/realtime/error': ThreadRealtimeErrorNotification
+  'thread/realtime/closed': ThreadRealtimeClosedNotification
+  error: JsonObject
+}
+
+export type NotificationMethod = keyof NotificationMap
+
+export interface JsonRpcErrorShape {
+  code: number
+  message: string
+  data?: JsonValue
+}
+
+export interface JsonRpcRequestEnvelope {
+  id: RequestId
+  method: string
+  params?: JsonValue
+}
+
+export interface JsonRpcNotificationEnvelope {
+  method: string
+  params?: JsonValue
+}
+
+export interface JsonRpcSuccessEnvelope {
+  id: RequestId
+  result: JsonValue
+}
+
+export interface JsonRpcErrorEnvelope {
+  id: RequestId
+  error: JsonRpcErrorShape
+}
+
+export type JsonRpcInboundEnvelope =
+  | JsonRpcRequestEnvelope
+  | JsonRpcNotificationEnvelope
+  | JsonRpcSuccessEnvelope
+  | JsonRpcErrorEnvelope
+
+export function isJsonObject(value: unknown): value is JsonObject {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+export function isRequestId(value: unknown): value is RequestId {
+  return typeof value === 'string' || (typeof value === 'number' && Number.isInteger(value))
+}
+
+export function parseInboundEnvelope(value: unknown): JsonRpcInboundEnvelope {
+  if (!isJsonObject(value)) throw new Error('Protocol message must be a JSON object')
+
+  const id = value.id
+  const method = value.method
+  const result = value.result
+  const error = value.error
+
+  if (isRequestId(id) && typeof method === 'string') {
+    return {
+      id,
+      method,
+      ...(value.params === undefined ? {} : { params: value.params })
+    }
+  }
+  if (id === undefined && typeof method === 'string') {
+    return {
+      method,
+      ...(value.params === undefined ? {} : { params: value.params })
+    }
+  }
+  if (isRequestId(id) && result !== undefined) return { id, result }
+  if (isRequestId(id) && isJsonObject(error)) {
+    if (typeof error.code !== 'number' || typeof error.message !== 'string') {
+      throw new Error('Protocol error response is malformed')
+    }
+    return {
+      id,
+      error: {
+        code: error.code,
+        message: error.message,
+        ...(error.data === undefined ? {} : { data: error.data })
+      }
+    }
+  }
+  throw new Error('Unrecognized protocol message shape')
+}
+
+function requireObject(value: unknown, label: string): JsonObject {
+  if (!isJsonObject(value)) throw new Error(`${label} must be an object`)
+  return value
+}
+
+function requireString(value: unknown, label: string): string {
+  if (typeof value !== 'string') throw new Error(`${label} must be a string`)
+  return value
+}
+
+function requireBoolean(value: unknown, label: string): boolean {
+  if (typeof value !== 'boolean') throw new Error(`${label} must be a boolean`)
+  return value
+}
+
+function requireNullableString(value: unknown, label: string): string | null {
+  if (value === null) return null
+  return requireString(value, label)
+}
+
+function validateInitialize(value: unknown): InitializeResponse {
+  const result = requireObject(value, 'initialize result')
+  return {
+    userAgent: requireString(result.userAgent, 'initialize.userAgent'),
+    codexHome: requireString(result.codexHome, 'initialize.codexHome'),
+    platformFamily: requireString(result.platformFamily, 'initialize.platformFamily'),
+    platformOs: requireString(result.platformOs, 'initialize.platformOs')
+  }
+}
+
+function validateAccount(value: unknown): Account | null {
+  if (value === null) return null
+  const account = requireObject(value, 'account')
+  if (account.type === 'apiKey') return { type: 'apiKey' }
+  if (account.type === 'chatgpt') {
+    const email = account.email === null ? null : requireString(account.email, 'account.email')
+    const planType = requireString(account.planType, 'account.planType') as PlanType
+    return { type: 'chatgpt', email, planType }
+  }
+  if (account.type === 'amazonBedrock') {
+    if (account.credentialSource === undefined) {
+      throw new Error('account.credentialSource is required')
+    }
+    return { type: 'amazonBedrock', credentialSource: account.credentialSource }
+  }
+  throw new Error('Unsupported account type')
+}
+
+function validateGetAccount(value: unknown): GetAccountResponse {
+  const result = requireObject(value, 'account/read result')
+  return {
+    account: validateAccount(result.account),
+    requiresOpenaiAuth: requireBoolean(result.requiresOpenaiAuth, 'requiresOpenaiAuth')
+  }
+}
+
+function validateLogin(value: unknown): LoginAccountResponse {
+  const result = requireObject(value, 'account/login/start result')
+  if (result.type === 'apiKey') return { type: 'apiKey' }
+  if (result.type === 'chatgpt') {
+    return {
+      type: 'chatgpt',
+      loginId: requireString(result.loginId, 'loginId'),
+      authUrl: requireString(result.authUrl, 'authUrl')
+    }
+  }
+  if (result.type === 'chatgptDeviceCode') {
+    return {
+      type: 'chatgptDeviceCode',
+      loginId: requireString(result.loginId, 'loginId'),
+      verificationUrl: requireString(result.verificationUrl, 'verificationUrl'),
+      userCode: requireString(result.userCode, 'userCode')
+    }
+  }
+  throw new Error('Unsupported login response type')
+}
+
+function validateCancelLogin(value: unknown): CancelLoginAccountResponse {
+  const result = requireObject(value, 'account/login/cancel result')
+  if (result.status !== 'canceled' && result.status !== 'notFound') {
+    throw new Error('Unsupported login cancellation status')
+  }
+  return { status: result.status }
+}
+
+function validateApp(value: unknown): AppInfo {
+  const app = requireObject(value, 'app')
+  if (!Array.isArray(app.pluginDisplayNames)) {
+    throw new Error('app.pluginDisplayNames must be an array')
+  }
+  return {
+    id: requireString(app.id, 'app.id'),
+    name: requireString(app.name, 'app.name'),
+    description: requireNullableString(app.description, 'app.description'),
+    logoUrl: requireNullableString(app.logoUrl, 'app.logoUrl'),
+    logoUrlDark: requireNullableString(app.logoUrlDark, 'app.logoUrlDark'),
+    iconAssets: isStringRecordOrNull(app.iconAssets, 'app.iconAssets'),
+    iconDarkAssets: isStringRecordOrNull(app.iconDarkAssets, 'app.iconDarkAssets'),
+    distributionChannel: requireNullableString(app.distributionChannel, 'app.distributionChannel'),
+    branding: validateAppBranding(app.branding),
+    appMetadata:
+      app.appMetadata === null
+        ? null
+        : (requireObject(app.appMetadata, 'app.appMetadata') as unknown as AppMetadata),
+    labels: isStringRecordOrNull(app.labels, 'app.labels'),
+    installUrl: requireNullableString(app.installUrl, 'app.installUrl'),
+    isAccessible: requireBoolean(app.isAccessible, 'app.isAccessible'),
+    isEnabled: requireBoolean(app.isEnabled, 'app.isEnabled'),
+    pluginDisplayNames: app.pluginDisplayNames.map((item, index) =>
+      requireString(item, `app.pluginDisplayNames[${index}]`)
+    )
+  }
+}
+
+function validateAppBranding(value: unknown): AppBranding | null {
+  if (value === null) return null
+  const branding = requireObject(value, 'app.branding')
+  return {
+    category: requireNullableString(branding.category, 'app.branding.category'),
+    developer: requireNullableString(branding.developer, 'app.branding.developer'),
+    website: requireNullableString(branding.website, 'app.branding.website'),
+    privacyPolicy: requireNullableString(branding.privacyPolicy, 'app.branding.privacyPolicy'),
+    termsOfService: requireNullableString(branding.termsOfService, 'app.branding.termsOfService'),
+    isDiscoverableApp: requireBoolean(branding.isDiscoverableApp, 'app.branding.isDiscoverableApp')
+  }
+}
+
+function isStringRecordOrNull(
+  value: unknown,
+  label: string
+): Readonly<Record<string, string>> | null {
+  if (value === null) return null
+  const object = requireObject(value, label)
+  const entries = Object.entries(object).map(([key, item]) => [
+    key,
+    requireString(item, `${label}.${key}`)
+  ])
+  return Object.fromEntries(entries)
+}
+
+function validateApps(value: unknown): AppsListResponse {
+  const result = requireObject(value, 'app/list result')
+  if (!Array.isArray(result.data)) throw new Error('app/list.data must be an array')
+  return {
+    data: result.data.map(validateApp),
+    nextCursor: requireNullableString(result.nextCursor, 'app/list.nextCursor')
+  }
+}
+
+function validateThreadStart(value: unknown): ThreadStartResponse {
+  const result = requireObject(value, 'thread/start result')
+  const thread = requireObject(result.thread, 'thread/start.thread')
+  requireString(thread.id, 'thread/start.thread.id')
+  return result as unknown as ThreadStartResponse
+}
+
+function validateTurnStart(value: unknown): TurnStartResponse {
+  const result = requireObject(value, 'turn/start result')
+  const turn = requireObject(result.turn, 'turn/start.turn')
+  requireString(turn.id, 'turn/start.turn.id')
+  return result as unknown as TurnStartResponse
+}
+
+function validateEmpty(value: unknown, label: string): EmptyResponse {
+  requireObject(value, label)
+  return {}
+}
+
+function validateRealtimeListVoices(value: unknown): ThreadRealtimeListVoicesResponse {
+  const result = requireObject(value, 'thread/realtime/listVoices result')
+  const voices = requireObject(result.voices, 'thread/realtime/listVoices.voices')
+  if (!Array.isArray(voices.v1) || !Array.isArray(voices.v2)) {
+    throw new Error('thread/realtime/listVoices voice lists must be arrays')
+  }
+  const requireVoice = (voice: unknown, label: string): RealtimeVoice => {
+    const parsed = requireString(voice, label) as RealtimeVoice
+    if (!REALTIME_VOICES.has(parsed)) throw new Error(`${label} is unsupported`)
+    return parsed
+  }
+  return {
+    voices: {
+      v1: voices.v1.map((voice, index) => requireVoice(voice, `voices.v1[${index}]`)),
+      v2: voices.v2.map((voice, index) => requireVoice(voice, `voices.v2[${index}]`)),
+      defaultV1: requireVoice(voices.defaultV1, 'voices.defaultV1'),
+      defaultV2: requireVoice(voices.defaultV2, 'voices.defaultV2')
+    }
+  }
+}
+
+export function validateClientResult<M extends ClientMethod>(
+  method: M,
+  value: unknown
+): ClientResult<M> {
+  let result: ClientResult<ClientMethod>
+  switch (method) {
+    case 'initialize':
+      result = validateInitialize(value)
+      break
+    case 'account/read':
+      result = validateGetAccount(value)
+      break
+    case 'account/login/start':
+      result = validateLogin(value)
+      break
+    case 'account/login/cancel':
+      result = validateCancelLogin(value)
+      break
+    case 'account/logout':
+      result = validateEmpty(value, 'account/logout result')
+      break
+    case 'app/list':
+      result = validateApps(value)
+      break
+    case 'thread/start':
+      result = validateThreadStart(value)
+      break
+    case 'turn/start':
+      result = validateTurnStart(value)
+      break
+    case 'turn/interrupt':
+      result = validateEmpty(value, 'turn/interrupt result')
+      break
+    case 'thread/realtime/start':
+    case 'thread/realtime/appendAudio':
+    case 'thread/realtime/appendText':
+    case 'thread/realtime/appendSpeech':
+    case 'thread/realtime/stop':
+      result = validateEmpty(value, `${method} result`)
+      break
+    case 'thread/realtime/listVoices':
+      result = validateRealtimeListVoices(value)
+      break
+  }
+  return result as ClientResult<M>
+}

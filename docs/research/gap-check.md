@@ -2,6 +2,11 @@
 
 Date: 2026-07-13. Method: read all six full reports, cross-compared claims, then independently re-verified every post-cutoff or load-bearing external claim (npm registry, raw GitHub source, live docs, live endpoints). Verification results are marked VERIFIED (checked today) or CREDIBLE (source-cited by the report, not independently re-tested, low risk).
 
+> **Superseded for Jarvis 0.2 (2026-07-13):** the voice-key conclusion below applies to direct
+> Platform Realtime, not to the exact pinned Codex app-server's experimental
+> `thread/realtime/*` WebRTC path now used by Jarvis. No Platform key, token exchange, or renderer
+> credential is part of the shipped path.
+
 ## Verdict
 
 **PASS with three decisions required before build.** No factual contradictions between reports on the load-bearing question. No hallucinations found — every spot-checked fact (14 checks, listed below) verified exactly, including file:line references into the Codex Rust source. The reports disagree in two places, but both are plan divergences (two valid mechanisms, pick one), not fact conflicts. The remaining gaps are one-time external setup and product decisions, not missing research.

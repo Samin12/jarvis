@@ -1,0 +1,197 @@
+.approval-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: rgb(3 5 8 / 76%);
+  backdrop-filter: blur(10px);
+}
+
+.approval-sheet {
+  width: min(760px, calc(100vw - 64px));
+  max-height: 80vh;
+  overflow: auto;
+  padding: 24px;
+  color: var(--text, #edf2ff);
+  background: linear-gradient(145deg, rgb(12 17 26 / 98%), rgb(6 8 13 / 98%));
+  border: 1px solid hsl(var(--accent-h, 220) 82% 64% / 42%);
+  box-shadow: 0 28px 80px rgb(0 0 0 / 55%);
+}
+
+.approval-header,
+.approval-actions,
+.approval-facts > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.approval-kicker,
+.approval-expiry,
+.approval-id,
+.approval-facts dt {
+  font-family: 'Martian Mono', monospace;
+  font-size: 0.6875rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.approval-kicker {
+  color: hsl(var(--accent-h, 220) 90% 70%);
+}
+
+.approval-expiry,
+.approval-id,
+.approval-facts dt {
+  color: rgb(204 215 238 / 56%);
+}
+
+.approval-sheet h2 {
+  margin: 24px 0 8px;
+  font-family: 'Big Shoulders', sans-serif;
+  font-size: 2rem;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+}
+
+.approval-sheet > p {
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: rgb(225 232 247 / 72%);
+}
+
+.approval-facts {
+  margin: 24px 0;
+  border-block: 1px solid rgb(205 220 255 / 12%);
+}
+
+.approval-facts > div {
+  padding: 12px 0;
+  border-bottom: 1px solid rgb(205 220 255 / 8%);
+}
+
+.approval-facts > div:last-child {
+  border-bottom: 0;
+}
+
+.approval-facts dd {
+  max-width: 70%;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-family: 'Martian Mono', monospace;
+  font-size: 0.8125rem;
+  text-align: right;
+}
+
+.approval-exact {
+  margin: 24px 0;
+  padding: 16px;
+  background: rgb(0 0 0 / 28%);
+  border: 1px solid rgb(205 220 255 / 14%);
+}
+
+.approval-exact h3 {
+  margin: 0 0 12px;
+  font-family: 'Martian Mono', monospace;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  color: hsl(var(--accent-h, 220) 90% 70%);
+  text-transform: uppercase;
+}
+
+.approval-exact pre {
+  max-height: 240px;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  color: rgb(237 242 255 / 92%);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: rgb(3 5 8 / 82%);
+  border: 1px solid rgb(205 220 255 / 10%);
+}
+
+.approval-exact code {
+  font-family: 'Martian Mono', monospace;
+  font-size: 0.75rem;
+}
+
+.approval-exact > p,
+.approval-change > p {
+  margin: 10px 0 0;
+  font-size: 0.75rem;
+  color: rgb(225 232 247 / 68%);
+}
+
+.approval-change + .approval-change {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid rgb(205 220 255 / 10%);
+}
+
+.approval-change > p {
+  margin: 0 0 8px;
+}
+
+.approval-change strong {
+  color: hsl(var(--accent-h, 220) 90% 70%);
+  font-family: 'Martian Mono', monospace;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.approval-actions {
+  justify-content: flex-end;
+  margin-top: 24px;
+}
+
+.approval-sheet > .approval-error {
+  margin: 16px 0 0;
+  color: var(--err, #ff6876);
+  font-family: 'Martian Mono', monospace;
+  font-size: 0.75rem;
+}
+
+.approval-actions button {
+  min-width: 132px;
+  min-height: 44px;
+  color: inherit;
+  background: transparent;
+  border: 1px solid rgb(205 220 255 / 24%);
+  cursor: pointer;
+}
+
+.approval-actions button:focus-visible {
+  outline: 2px solid hsl(var(--accent-h, 220) 90% 70%);
+  outline-offset: 3px;
+}
+
+.approval-actions button:disabled {
+  cursor: wait;
+  opacity: 0.52;
+}
+
+.approval-actions .approval-run {
+  color: #04070d;
+  background: hsl(var(--accent-h, 220) 90% 72%);
+  border-color: transparent;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .approval-sheet {
+    animation: approval-enter 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+}
+
+@keyframes approval-enter {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.99);
+  }
+}

@@ -5,6 +5,8 @@ dist/
 out/
 release/
 .vite/
+/build/native/
+/build/legal/
 # env & secrets
 .env
 .env.*
@@ -13,6 +15,16 @@ release/
 # auth tokens (never commit)
 .jarvis/
 auth.json
+# signing and notarization credentials (never commit)
+electron-builder.env
+*.p12
+*.pfx
+*.p8
+*.cer
+*.pem
+*.key
+*.mobileprovision
+*.jks
 # os
 .DS_Store
 Thumbs.db
@@ -20,5 +32,6 @@ Thumbs.db
 *.log
 npm-debug.log*
 .tmp/
+.gstack/
 # lint cache
 .eslintcache

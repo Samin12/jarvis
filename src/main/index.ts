@@ -1,26 +1,29 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import { registerAuth, getAccountId } from './services/auth'
-import { registerSettings, getSettingsSnapshot } from './services/settings'
-import { registerConnectors, executeTool, setUserIdProvider } from './services/connectors'
-import { registerCodex } from './services/codex'
-import { registerVoice } from './services/voice'
+import { registerSettings } from './services/settings'
+import { registerVoice, type RegisteredVoiceService } from './services/voice'
+import { secureSession, secureWindow } from './security'
+import { createJarvisRuntime, type JarvisRuntime } from './services/runtime'
 
 let mainWindow: BrowserWindow | null = null
+let runtime: JarvisRuntime | null = null
+let voiceService: RegisteredVoiceService | null = null
+let shutdownStarted = false
+const ownsSingleInstance = app.requestSingleInstanceLock()
 
 const getWindow = (): BrowserWindow | null =>
   mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
 
 function createWindow(): void {
-  // The HUD is a desktop-only fixed composition (>=1280px assumed by the
-  // design system) — enforce the floor at the window level.
+  // Jarvis has one privileged main frame. The renderer is treated as untrusted
+  // presentation code and receives only the explicit preload bridge.
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
-    minWidth: 1440,
-    minHeight: 900,
+    minWidth: 1120,
+    minHeight: 720,
     show: false,
     autoHideMenuBar: true,
     backgroundColor: '#07090c',
@@ -28,9 +31,15 @@ function createWindow(): void {
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: true
     }
   })
+
+  secureWindow(mainWindow)
+  secureSession(mainWindow.webContents.session, getWindow)
 
   mainWindow.on('ready-to-show', () => {
     mainWindow?.show()
@@ -38,11 +47,6 @@ function createWindow(): void {
 
   mainWindow.on('closed', () => {
     mainWindow = null
-  })
-
-  mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
-    return { action: 'deny' }
   })
 
   // HMR for renderer base on electron-vite cli.
@@ -54,39 +58,55 @@ function createWindow(): void {
   }
 }
 
-app.whenReady().then(() => {
-  electronApp.setAppUserModelId('us.aianswer.jarvis')
-
-  // Default open or close DevTools by F12 in development
-  // and ignore CommandOrControl + R in production.
-  app.on('browser-window-created', (_, window) => {
-    optimizer.watchWindowShortcuts(window)
+if (!ownsSingleInstance) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    const window = getWindow()
+    if (!window) return
+    if (window.isMinimized()) window.restore()
+    window.show()
+    window.focus()
   })
 
-  // --- service registration -------------------------------------------------
-  // Order matters: auth first (it needs a ready app for safeStorage and does
-  // startup adoption of ~/.codex/auth.json; voice/connectors read its module
-  // accessors), settings before voice (voice reads the settings snapshot).
-  registerAuth(ipcMain, getWindow)
-  registerSettings(ipcMain)
-  registerConnectors(ipcMain, getWindow)
-  // Composio userId follows the live ChatGPT account (falls back to the
-  // tokenStore read inside the connectors service when this returns null).
-  setUserIdProvider(() => getAccountId())
-  registerCodex(ipcMain, getWindow)
-  registerVoice(ipcMain, getWindow, {
-    executeTool,
-    getSettings: () => getSettingsSnapshot()
-  })
+  void app
+    .whenReady()
+    .then(async () => {
+      electronApp.setAppUserModelId('us.aianswer.jarvis')
 
-  createWindow()
+      // Default open or close DevTools by F12 in development
+      // and ignore CommandOrControl + R in production.
+      app.on('browser-window-created', (_, window) => {
+        optimizer.watchWindowShortcuts(window)
+      })
 
-  app.on('activate', function () {
-    // On macOS it's common to re-create a window in the app when the
-    // dock icon is clicked and there are no other windows open.
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
-  })
-})
+      // ChatGPT identity, apps, conversation, live voice, and Codex are owned by
+      // the isolated app-server runtime. Local speech remains the fallback lane.
+      registerSettings(ipcMain, getWindow)
+      runtime = await createJarvisRuntime(ipcMain, getWindow)
+      voiceService = registerVoice(ipcMain, getWindow, { core: runtime.core })
+
+      createWindow()
+      void runtime.start().catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error)
+        console.error('[runtime]', message)
+        dialog.showErrorBox('Jarvis could not secure its local state', message)
+        app.quit()
+      })
+
+      app.on('activate', function () {
+        // On macOS it's common to re-create a window in the app when the
+        // dock icon is clicked and there are no other windows open.
+        if (BrowserWindow.getAllWindows().length === 0) createWindow()
+      })
+    })
+    .catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error)
+      console.error('[startup]', message)
+      dialog.showErrorBox('Jarvis could not start', message)
+      app.quit()
+    })
+}
 
 // Quit when all windows are closed, except on macOS. There, it's common
 // for applications and their menu bar to stay active until the user quits
@@ -95,4 +115,13 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
+})
+
+app.on('before-quit', (event) => {
+  if (!runtime || shutdownStarted) return
+  event.preventDefault()
+  shutdownStarted = true
+  void Promise.allSettled([runtime.stop(), voiceService?.close() ?? Promise.resolve()]).finally(
+    () => app.quit()
+  )
 })

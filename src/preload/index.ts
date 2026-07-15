@@ -1,15 +1,21 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { electronAPI } from '@electron-toolkit/preload'
 import { IPC } from '../shared/ipc'
 import type {
   AuthStatus,
-  ChatDelta,
+  ConversationDelta,
+  ConversationSendRequest,
   CodexEventRow,
-  CodexRunReceipt,
+  ActionReceiptRow,
   CodexTaskRow,
   ConnectorCard,
   JarvisSettings,
-  RealtimeSessionGrant,
+  HostApprovalPreview,
+  LocalVoiceEvent,
+  LocalVoiceState,
+  RealtimeHostEvent,
+  RealtimeStartRequest,
+  RealtimeStartResult,
+  RealtimeStopRequest,
   VoiceLane
 } from '../shared/types'
 
@@ -25,52 +31,69 @@ function on<T>(channel: string, cb: (payload: T) => void): Unsubscribe {
 const jarvis = {
   auth: {
     signIn: (): Promise<AuthStatus> => ipcRenderer.invoke(IPC.auth.signIn),
+    cancelSignIn: (): Promise<void> => ipcRenderer.invoke(IPC.auth.cancelSignIn),
     signOut: (): Promise<void> => ipcRenderer.invoke(IPC.auth.signOut),
     getStatus: (): Promise<AuthStatus> => ipcRenderer.invoke(IPC.auth.getStatus),
     onStatusChanged: (cb: (s: AuthStatus) => void): Unsubscribe => on(IPC.auth.statusChanged, cb)
   },
+  core: {
+    send: (request: ConversationSendRequest): Promise<void> =>
+      ipcRenderer.invoke(IPC.core.send, request),
+    cancel: (requestId: string): Promise<void> => ipcRenderer.invoke(IPC.core.cancel, requestId),
+    onDelta: (cb: (delta: ConversationDelta) => void): Unsubscribe => on(IPC.core.delta, cb)
+  },
   voice: {
-    mintRealtimeSession: (): Promise<RealtimeSessionGrant | { error: string }> =>
-      ipcRenderer.invoke(IPC.voice.mintRealtimeSession),
     laneAvailable: (): Promise<VoiceLane> => ipcRenderer.invoke(IPC.voice.laneAvailable),
-    setManualApiKey: (key: string): Promise<boolean> =>
-      ipcRenderer.invoke(IPC.voice.setManualApiKey, key),
-    chatSend: (req: {
-      requestId: string
-      text: string
-      history: { role: 'user' | 'assistant'; text: string }[]
-    }): Promise<void> => ipcRenderer.invoke(IPC.voice.chatSend, req),
-    onChatDelta: (cb: (d: ChatDelta) => void): Unsubscribe => on(IPC.voice.chatDelta, cb),
-    executeTool: (req: {
-      name: string
-      argsJson: string
-    }): Promise<{ ok: boolean; resultJson: string }> =>
-      ipcRenderer.invoke(IPC.voice.executeTool, req)
+    realtimeStart: (request: RealtimeStartRequest): Promise<RealtimeStartResult> =>
+      ipcRenderer.invoke(IPC.voice.realtimeStart, request),
+    realtimeStop: (request: RealtimeStopRequest): Promise<void> =>
+      ipcRenderer.invoke(IPC.voice.realtimeStop, request),
+    onRealtimeEvent: (cb: (event: RealtimeHostEvent) => void): Unsubscribe =>
+      on(IPC.voice.realtimeEvent, cb),
+    localStatus: (): Promise<LocalVoiceState> => ipcRenderer.invoke(IPC.voice.localStatus),
+    localPermission: (): Promise<LocalVoiceState> => ipcRenderer.invoke(IPC.voice.localPermission),
+    localStart: (): Promise<void> => ipcRenderer.invoke(IPC.voice.localStart),
+    localStop: (): Promise<void> => ipcRenderer.invoke(IPC.voice.localStop),
+    localCancel: (): Promise<void> => ipcRenderer.invoke(IPC.voice.localCancel),
+    localSpeak: (text: string): Promise<void> => ipcRenderer.invoke(IPC.voice.localSpeak, text),
+    localStopSpeaking: (): Promise<void> => ipcRenderer.invoke(IPC.voice.localStopSpeaking),
+    onLocalEvent: (cb: (event: LocalVoiceEvent) => void): Unsubscribe =>
+      on(IPC.voice.localEvent, cb)
   },
   connectors: {
     list: (): Promise<ConnectorCard[]> => ipcRenderer.invoke(IPC.connectors.list),
     connect: (slug: string): Promise<ConnectorCard> =>
       ipcRenderer.invoke(IPC.connectors.connect, slug),
-    disconnect: (slug: string): Promise<ConnectorCard> =>
-      ipcRenderer.invoke(IPC.connectors.disconnect, slug),
-    onChanged: (cb: (cards: ConnectorCard[]) => void): Unsubscribe =>
-      on(IPC.connectors.changed, cb),
-    voiceTools: (): Promise<unknown[]> => ipcRenderer.invoke(IPC.connectors.voiceTools)
+    onChanged: (cb: (cards: ConnectorCard[]) => void): Unsubscribe => on(IPC.connectors.changed, cb)
+  },
+  approvals: {
+    list: (): Promise<HostApprovalPreview[]> => ipcRenderer.invoke(IPC.approvals.list),
+    decide: (approvalId: string, decision: 'approve' | 'deny'): Promise<void> =>
+      ipcRenderer.invoke(IPC.approvals.decide, { approvalId, decision }),
+    onChanged: (cb: (approvals: HostApprovalPreview[]) => void): Unsubscribe =>
+      on(IPC.approvals.changed, cb)
   },
   codex: {
     dispatch: (req: {
       prompt: string
-      cwd?: string
-      fullAccess?: boolean
+      scopeId?: string
       boundary?: { maxTurns?: number; wallClockMs?: number }
-    }): Promise<{ taskId: string }> => ipcRenderer.invoke(IPC.codex.dispatch, req),
+    }): Promise<{ taskId: string }> =>
+      ipcRenderer.invoke(IPC.codex.dispatch, {
+        prompt: req.prompt,
+        scopeId: req.scopeId,
+        boundary: req.boundary
+      }),
+    selectWorkspace: (): Promise<{ scopeId: string; path: string } | null> =>
+      ipcRenderer.invoke(IPC.codex.selectWorkspace),
     cancel: (taskId: string): Promise<void> => ipcRenderer.invoke(IPC.codex.cancel, taskId),
     list: (): Promise<CodexTaskRow[]> => ipcRenderer.invoke(IPC.codex.list),
     onEvent: (cb: (p: { taskId: string; row: CodexEventRow }) => void): Unsubscribe =>
       on(IPC.codex.event, cb),
     onTaskChanged: (cb: (t: CodexTaskRow) => void): Unsubscribe => on(IPC.codex.taskChanged, cb),
-    loginStatus: (): Promise<{ loggedIn: boolean }> => ipcRenderer.invoke(IPC.codex.loginStatus),
-    receipts: (): Promise<CodexRunReceipt[]> => ipcRenderer.invoke(IPC.codex.receipts)
+    loginStatus: (): Promise<{ loggedIn: boolean; taskEligible: boolean }> =>
+      ipcRenderer.invoke(IPC.codex.loginStatus),
+    receipts: (): Promise<ActionReceiptRow[]> => ipcRenderer.invoke(IPC.codex.receipts)
   },
   settings: {
     get: (): Promise<JarvisSettings> => ipcRenderer.invoke(IPC.settings.get),
@@ -83,14 +106,11 @@ export type JarvisBridge = typeof jarvis
 
 if (process.contextIsolated) {
   try {
-    contextBridge.exposeInMainWorld('electron', electronAPI)
     contextBridge.exposeInMainWorld('jarvis', jarvis)
   } catch (error) {
     console.error(error)
   }
 } else {
-  // @ts-ignore (define in dts)
-  window.electron = electronAPI
   // @ts-ignore (define in dts)
   window.jarvis = jarvis
 }

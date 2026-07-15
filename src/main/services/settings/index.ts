@@ -1,29 +1,14 @@
-/**
- * Settings service — plain JSON persistence in userData/settings.json.
- *
- * The manually pasted Platform API key is NOT stored here: the voice service
- * owns it (safeStorage-encrypted, main process only). JarvisSettings.hasManualApiKey
- * is derived at read time so the renderer sees a truthful flag without ever
- * touching the key itself.
- *
- * Integration wiring (src/main/index.ts):
- *   registerSettings(ipcMain)
- *   registerVoice(ipcMain, getWindow, { executeTool, getSettings: getSettingsSnapshot })
- */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+/** Settings service — allowlisted JSON persistence in userData/settings.json. */
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { app, type IpcMain } from 'electron'
+import { app, type BrowserWindow, type IpcMain } from 'electron'
 import { IPC } from '../../../shared/ipc'
 import type { JarvisSettings } from '../../../shared/types'
-import { hasManualApiKey } from '../voice'
+import { assertPlainObject, registerTrustedHandler } from '../../security'
 
-/** Everything persisted to disk — hasManualApiKey is derived, never stored. */
-type PersistedSettings = Omit<JarvisSettings, 'hasManualApiKey'>
+type PersistedSettings = JarvisSettings
 
 const DEFAULTS: PersistedSettings = {
-  voiceModel: 'gpt-realtime-2.1',
-  voice: 'marin',
-  costMode: false,
   pushToTalkKey: 'Space'
 }
 
@@ -38,15 +23,6 @@ function sanitize(raw: unknown): Partial<PersistedSettings> {
   if (!raw || typeof raw !== 'object') return {}
   const input = raw as Record<string, unknown>
   const out: Partial<PersistedSettings> = {}
-  if (input.voiceModel === 'gpt-realtime-2.1' || input.voiceModel === 'gpt-realtime-2.1-mini') {
-    out.voiceModel = input.voiceModel
-  }
-  if (typeof input.voice === 'string' && input.voice.trim().length > 0) {
-    out.voice = input.voice.trim()
-  }
-  if (typeof input.costMode === 'boolean') {
-    out.costMode = input.costMode
-  }
   if (typeof input.pushToTalkKey === 'string' && input.pushToTalkKey.trim().length > 0) {
     out.pushToTalkKey = input.pushToTalkKey.trim()
   }
@@ -68,33 +44,32 @@ function persist(next: PersistedSettings): void {
   cache = next
   try {
     const file = settingsPath()
-    mkdirSync(dirname(file), { recursive: true })
-    writeFileSync(file, `${JSON.stringify(next, null, 2)}\n`)
+    mkdirSync(dirname(file), { recursive: true, mode: 0o700 })
+    writeFileSync(file, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 })
+    chmodSync(file, 0o600)
   } catch {
     // in-memory copy still serves this session
   }
 }
 
-/** Synchronous snapshot for main-side consumers (voice's getSettings dep). */
 export function getSettingsSnapshot(): PersistedSettings {
   return { ...load() }
 }
 
-/** Full settings object as the renderer sees it. */
-export async function getSettings(): Promise<JarvisSettings> {
-  let manualKey = false
-  try {
-    manualKey = await hasManualApiKey()
-  } catch {
-    manualKey = false
-  }
-  return { ...load(), hasManualApiKey: manualKey }
+export function getSettings(): JarvisSettings {
+  return { ...load() }
 }
 
-export function registerSettings(ipcMain: IpcMain): void {
-  ipcMain.handle(IPC.settings.get, () => getSettings())
-  ipcMain.handle(IPC.settings.update, async (_event, patch: Partial<JarvisSettings>) => {
-    persist({ ...load(), ...sanitize(patch) })
-    return getSettings()
-  })
+export function registerSettings(ipcMain: IpcMain, getWindow: () => BrowserWindow | null): void {
+  registerTrustedHandler(ipcMain, IPC.settings.get, getWindow, () => getSettings())
+  registerTrustedHandler(
+    ipcMain,
+    IPC.settings.update,
+    getWindow,
+    async (_event, patch: unknown) => {
+      assertPlainObject(patch, { name: 'settings update', maxBytes: 4_096 })
+      persist({ ...load(), ...sanitize(patch) })
+      return getSettings()
+    }
+  )
 }

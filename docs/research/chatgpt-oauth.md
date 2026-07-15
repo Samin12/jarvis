@@ -3,6 +3,10 @@
 Research date: 2026-07-13. For the Jarvis macOS desktop app (sign in with the user's own
 ChatGPT account, then call OpenAI on that user's ChatGPT plan).
 
+> **Implementation note (2026-07-13):** the direct-token conclusions below remain correct for
+> calls Jarvis would make itself. Jarvis 0.2 does not make those calls or copy the token; the
+> pinned Codex app-server owns ChatGPT auth and its experimental `thread/realtime/*` sideband.
+
 Primary sources (raw source read, not just docs):
 - OpenAI Codex CLI (Rust), `main` branch: https://github.com/openai/codex — crate `codex-rs/login`
 - opencoredev/login-with-chatgpt (TypeScript SDK, a faithful port of the Codex flow):

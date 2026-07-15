@@ -1,0 +1,453 @@
+name: Draft trusted macOS release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Exact tag matching package.json (for example v0.2.0)
+        required: true
+        type: string
+      prerelease:
+        description: Mark the draft as a prerelease
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trusted-release-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  validate_release_ref:
+    name: Validate trusted release ref
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+    outputs:
+      release_commit: ${{ steps.release_ref.outputs.release_commit }}
+    steps:
+      - name: Refuse dispatches outside main
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "Trusted releases must be dispatched from main, not $GITHUB_REF." >&2
+            exit 1
+          fi
+
+      - name: Check out main without credentials
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Require the tag, checkout, and freshly fetched main to be identical
+        id: release_ref
+        shell: bash
+        run: |
+          set -euo pipefail
+          git check-ref-format "refs/tags/$RELEASE_TAG"
+          git fetch --force --no-tags origin "+refs/heads/main:refs/remotes/origin/main"
+          git fetch --force origin "+refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+
+          head_commit=$(git rev-parse --verify HEAD)
+          main_commit=$(git rev-parse --verify "refs/remotes/origin/main^{commit}")
+          tag_commit=$(git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}")
+          if [[ "$head_commit" != "$main_commit" || "$tag_commit" != "$main_commit" ]]; then
+            echo "Release requires HEAD, origin/main, and $RELEASE_TAG to point to one commit." >&2
+            echo "HEAD=$head_commit origin/main=$main_commit tag=$tag_commit" >&2
+            exit 1
+          fi
+          echo "release_commit=$main_commit" >> "$GITHUB_OUTPUT"
+
+  build-signed:
+    name: Build signed ${{ matrix.arch }} artifact
+    needs: validate_release_ref
+    environment: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            swift_arch: arm64
+            resource_arch: arm64
+            runner: macos-15
+          - arch: x64
+            swift_arch: x86_64
+            resource_arch: x86_64
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    env:
+      TARGET_ARCH: ${{ matrix.arch }}
+      JARVIS_MACOS_SPEECH_ARCH: ${{ matrix.swift_arch }}
+      JARVIS_MACOS_SPEECH_RESOURCE_ARCH: ${{ matrix.resource_arch }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      JARVIS_RELEASE_CONFIG: electron-builder.release.yml
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ needs.validate_release_ref.outputs.release_commit }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Revalidate the immutable release commit before running repository code
+        shell: bash
+        env:
+          EXPECTED_COMMIT: ${{ needs.validate_release_ref.outputs.release_commit }}
+        run: |
+          set -euo pipefail
+          git check-ref-format "refs/tags/$RELEASE_TAG"
+          git fetch --force --no-tags origin "+refs/heads/main:refs/remotes/origin/main"
+          git fetch --force origin "+refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+
+          tag_commit=$(git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}")
+          main_commit=$(git rev-parse --verify "refs/remotes/origin/main^{commit}")
+          head_commit=$(git rev-parse --verify HEAD)
+          if [[ "$tag_commit" != "$EXPECTED_COMMIT" || "$main_commit" != "$EXPECTED_COMMIT" || "$head_commit" != "$EXPECTED_COMMIT" ]]; then
+            echo "Release ref changed after validation; refusing to run repository code." >&2
+            echo "expected=$EXPECTED_COMMIT HEAD=$head_commit origin/main=$main_commit tag=$tag_commit" >&2
+            exit 1
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Run full verification on the target architecture before loading release secrets
+        run: npm run verify:ci
+
+      - name: Materialize the App Store Connect API key with runner-only permissions
+        shell: bash
+        env:
+          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ -n "$APPLE_API_KEY_BASE64" ]] || { echo "APPLE_API_KEY_BASE64 is missing." >&2; exit 1; }
+          [[ "$APPLE_API_KEY_ID" =~ ^[A-Z0-9]{10}$ ]] || { echo "APPLE_API_KEY_ID is invalid." >&2; exit 1; }
+          [[ "$APPLE_API_ISSUER" =~ ^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$ ]] || { echo "APPLE_API_ISSUER is invalid." >&2; exit 1; }
+
+          key_dir="${RUNNER_TEMP:?}/jarvis-notary-private-key"
+          key_path="$key_dir/AuthKey.p8"
+          if [[ -e "$key_dir" || -L "$key_dir" ]]; then
+            echo "Refusing a pre-existing notarization key directory." >&2
+            exit 1
+          fi
+          install -d -m 0700 "$key_dir"
+          cleanup_failed_materialization() {
+            status=$?
+            if [[ $status -ne 0 ]]; then
+              rm -f -- "$key_path"
+              rmdir -- "$key_dir" 2>/dev/null || true
+            fi
+            exit "$status"
+          }
+          trap cleanup_failed_materialization EXIT
+
+          printf '%s' "$APPLE_API_KEY_BASE64" | /usr/bin/base64 -D > "$key_path"
+          chmod 0600 "$key_path"
+          [[ "$(stat -f '%Lp' "$key_path")" == "600" ]]
+          [[ "$(head -n 1 "$key_path")" == '-----BEGIN PRIVATE KEY-----' ]]
+          [[ "$(tail -n 1 "$key_path")" == '-----END PRIVATE KEY-----' ]]
+          [[ "$(wc -c < "$key_path" | tr -d ' ')" -ge 100 ]]
+
+          echo "APPLE_API_KEY=$key_path" >> "$GITHUB_ENV"
+          trap - EXIT
+
+      - name: Refuse an unsigned, cross-architecture, or version-mismatched release
+        env:
+          CSC_LINK: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npm run verify:release-secrets
+
+      - name: Build, stage, sign, and notarize the native-architecture package
+        env:
+          JARVIS_SKIP_APP_BUILD: '1'
+          CSC_LINK: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npm run build:release:mac
+
+      - name: Remove the materialized notarization private key
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          key_dir="${RUNNER_TEMP:?}/jarvis-notary-private-key"
+          key_path="$key_dir/AuthKey.p8"
+          if [[ -e "$key_path" || -L "$key_path" ]]; then rm -f -- "$key_path"; fi
+          if [[ -d "$key_dir" && ! -L "$key_dir" ]]; then
+            rmdir -- "$key_dir" || {
+              echo "Notarization key directory was not empty after key removal." >&2
+              exit 1
+            }
+          elif [[ -e "$key_dir" || -L "$key_dir" ]]; then
+            echo "Notarization key directory changed type before cleanup." >&2
+            exit 1
+          fi
+          echo 'APPLE_API_KEY=' >> "$GITHUB_ENV"
+
+      - name: Verify architecture, nested Codex binary, signature, and notarization
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_version=$(node -p 'require("./package.json").version')
+          npm run verify:package -- \
+            --arch "$TARGET_ARCH" \
+            --dist-dir dist \
+            --summary-path "dist/jarvis-${package_version}-${TARGET_ARCH}-verification.json"
+
+      - name: Archive the verified third-party legal tree once
+        if: matrix.arch == 'arm64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run verify:legal
+          package_version=$(node -p 'require("./package.json").version')
+          notices_path="$PWD/dist/jarvis-${package_version}-third-party-notices.zip"
+          (
+            cd build/legal
+            /usr/bin/zip -X -q -r "$notices_path" .
+          )
+
+      - name: Upload verified release artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: jarvis-macos-${{ matrix.arch }}
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/jarvis-*-${{ matrix.arch }}-verification.json
+
+  publish-draft:
+    name: Create GitHub draft release
+    needs: [validate_release_ref, build-signed]
+    environment: release
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      PRERELEASE: ${{ inputs.prerelease }}
+      EXPECTED_COMMIT: ${{ needs.validate_release_ref.outputs.release_commit }}
+    steps:
+      - name: Revalidate main and tag before creating the draft
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ needs.validate_release_ref.outputs.release_commit }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Refuse release-ref drift after the signed builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          git check-ref-format "refs/tags/$RELEASE_TAG"
+          git fetch --force --no-tags origin "+refs/heads/main:refs/remotes/origin/main"
+          git fetch --force origin "+refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+
+          head_commit=$(git rev-parse --verify HEAD)
+          main_commit=$(git rev-parse --verify "refs/remotes/origin/main^{commit}")
+          tag_commit=$(git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}")
+          if [[ "$tag_commit" != "$EXPECTED_COMMIT" || "$main_commit" != "$EXPECTED_COMMIT" || "$head_commit" != "$EXPECTED_COMMIT" ]]; then
+            echo "Release ref changed after the signed builds; refusing to create a draft." >&2
+            echo "expected=$EXPECTED_COMMIT HEAD=$head_commit origin/main=$main_commit tag=$tag_commit" >&2
+            exit 1
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Download both verified architectures
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: jarvis-macos-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Generate the full source dependency SBOM
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_version=$(node -p 'require("./package.json").version')
+          npm sbom \
+            --package-lock-only \
+            --sbom-format=cyclonedx \
+            --sbom-type=application \
+            | jq -S 'del(.serialNumber, .metadata.timestamp)' \
+            > "release-assets/jarvis-${package_version}-sbom.cdx.json"
+
+      - name: Prepare the immutable release receipts and human-readable metadata
+        shell: bash
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          GH_TOKEN: ''
+        run: |
+          set -euo pipefail
+          node scripts/release-receipts.mjs prepare \
+            --assets-dir release-assets \
+            --package-json package.json \
+            --tag "$RELEASE_TAG" \
+            --commit "$EXPECTED_COMMIT" \
+            --repository "$GITHUB_REPOSITORY" \
+            --team-id "$APPLE_TEAM_ID" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --title-out release-title.txt \
+            --body-out release-notes.md
+
+      - name: Require exactly eleven physical release assets before uploading
+        env:
+          GH_TOKEN: ''
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync, readdirSync } from 'node:fs'
+          import { join } from 'node:path'
+          import {
+            expectedReleaseAssetNames,
+            sha256PhysicalFile
+          } from './scripts/release-policy.mjs'
+
+          const packageJson = JSON.parse(readFileSync('package.json', 'utf8'))
+          const expected = expectedReleaseAssetNames(packageJson.name, packageJson.version).sort()
+          const entries = readdirSync('release-assets', { withFileTypes: true })
+          const actual = entries.map((entry) => entry.name).sort()
+          if (
+            entries.length !== 11 ||
+            entries.some((entry) => !entry.isFile() || entry.isSymbolicLink()) ||
+            actual.join('\n') !== expected.join('\n')
+          ) {
+            throw new Error(`Release input must contain exactly eleven physical assets; found ${actual.join(', ')}`)
+          }
+          for (const name of actual) sha256PhysicalFile(join('release-assets', name))
+          NODE
+
+      - name: Create or safely reuse and verify the exact draft
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          validate_reusable_draft() {
+            local release_view=$1
+            RELEASE_VIEW="$release_view" node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs'
+
+          const release = JSON.parse(readFileSync(process.env.RELEASE_VIEW, 'utf8'))
+          const expectedTitle = readFileSync('release-title.txt', 'utf8').trim()
+          const expectedBody = readFileSync('release-notes.md', 'utf8')
+          const expectedPrerelease = process.env.PRERELEASE === 'true'
+          if (
+            release.tagName !== process.env.RELEASE_TAG ||
+            release.isDraft !== true ||
+            release.isPrerelease !== expectedPrerelease ||
+            release.name !== expectedTitle ||
+            release.body !== expectedBody
+          ) {
+            process.exit(1)
+          }
+          NODE
+          }
+
+          reuse_existing=false
+          if gh release view "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json tagName,name,isDraft,isPrerelease,body > existing-release.json 2>/dev/null; then
+            if validate_reusable_draft existing-release.json; then
+              echo "Reusing the existing exact draft; all eleven assets will now be reverified."
+              reuse_existing=true
+            else
+              echo "Release $RELEASE_TAG already exists but its protected metadata differs; refusing to overwrite it." >&2
+              exit 1
+            fi
+          fi
+
+          if [[ "$reuse_existing" != 'true' ]]; then
+            mapfile -d '' assets < <(find release-assets -mindepth 1 -maxdepth 1 -type f -print0 | sort -z)
+            if [[ ${#assets[@]} -ne 11 ]]; then
+              echo "Expected eleven verified release assets, found ${#assets[@]}." >&2
+              exit 1
+            fi
+
+            prerelease_flag=()
+            if [[ "$PRERELEASE" == "true" ]]; then prerelease_flag=(--prerelease); fi
+
+            cleanup_failed_create() {
+              status=$?
+              trap - EXIT
+              if [[ $status -ne 0 ]] && gh release view "$RELEASE_TAG" \
+                --repo "$GITHUB_REPOSITORY" \
+                --json tagName,name,isDraft,isPrerelease,body > failed-release.json 2>/dev/null; then
+                if validate_reusable_draft failed-release.json; then
+                  echo "Removing the exact partial draft created by this failed upload or verification." >&2
+                  gh release delete "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --yes || true
+                else
+                  echo "A non-matching release now exists; leaving it untouched." >&2
+                fi
+              fi
+              exit "$status"
+            }
+            trap cleanup_failed_create EXIT
+
+            gh release create "$RELEASE_TAG" "${assets[@]}" \
+              --repo "$GITHUB_REPOSITORY" \
+              --draft \
+              --verify-tag \
+              "${prerelease_flag[@]}" \
+              --notes-file release-notes.md \
+              --title "$(< release-title.txt)"
+          fi
+
+          gh release view "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json tagName,name,isDraft,isPrerelease,assets,body \
+            | jq -S . > release-view.json
+          GH_TOKEN='' node scripts/release-policy.mjs capture \
+            --release-view release-view.json \
+            --tag "$RELEASE_TAG" \
+            --commit "$EXPECTED_COMMIT" \
+            --package-json package.json \
+            --repository "$GITHUB_REPOSITORY" \
+            --out release-contract.json
+
+          GH_TOKEN='' node scripts/release-policy.mjs assert-live-draft \
+            --contract release-contract.json \
+            --release-view release-view.json
+          GH_TOKEN='' node scripts/release-policy.mjs verify-assets \
+            --contract release-contract.json \
+            --dir release-assets
+          GH_TOKEN='' node scripts/release-receipts.mjs verify \
+            --assets-dir release-assets \
+            --package-json package.json \
+            --tag "$RELEASE_TAG" \
+            --commit "$EXPECTED_COMMIT" \
+            --repository "$GITHUB_REPOSITORY" \
+            --release-view release-view.json
+
+          if [[ "$reuse_existing" != 'true' ]]; then trap - EXIT; fi

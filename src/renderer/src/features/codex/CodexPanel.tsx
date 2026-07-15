@@ -5,14 +5,17 @@
  * cancel button, receipts history toggle. classNames only — styling
  * lives in the HUD design system.
  */
-import { useState } from 'react'
+import { useState, type FormEvent } from 'react'
 import type {
+  ActionReceiptRow,
   CodexEventRow,
-  CodexRunReceipt,
   CodexTaskRow,
   CodexTerminalState
 } from '../../../../shared/types'
+import { useAppState } from '../../state/appState'
 import { useCodex } from './useCodex'
+
+const PERSONAL_ACTION_PLANS = new Set(['free', 'go', 'plus', 'pro', 'prolite'])
 
 const TERMINAL_LABEL: Record<CodexTerminalState, string> = {
   success: 'SUCCESS',
@@ -20,7 +23,8 @@ const TERMINAL_LABEL: Record<CodexTerminalState, string> = {
   blocked: 'BLOCKED',
   approval_required: 'NEEDS APPROVAL',
   exhausted: 'EXHAUSTED',
-  no_progress: 'NO PROGRESS'
+  no_progress: 'NO PROGRESS',
+  unknown_outcome: 'OUTCOME UNKNOWN'
 }
 
 function badgeFor(task: CodexTaskRow): { label: string; className: string; running: boolean } {
@@ -46,11 +50,56 @@ function timeLabel(at: number): string {
 }
 
 export function CodexPanel(): React.JSX.Element {
-  const { tasks, receipts, receiptsVisible, loggedIn, cancel, toggleReceipts } = useCodex()
+  const {
+    tasks,
+    receipts,
+    receiptsVisible,
+    loggedIn,
+    taskEligible,
+    dispatch,
+    selectWorkspace,
+    cancel,
+    toggleReceipts
+  } = useCodex()
+  const { auth } = useAppState()
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  const [prompt, setPrompt] = useState('')
+  const [workspace, setWorkspace] = useState<{ scopeId: string; path: string } | null>(null)
+  const [dispatching, setDispatching] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const toggleExpand = (taskId: string): void =>
     setExpanded((prev) => ({ ...prev, [taskId]: !prev[taskId] }))
+
+  const chooseWorkspace = async (): Promise<void> => {
+    if (taskEligible !== true) return
+    setError(null)
+    try {
+      const selected = await selectWorkspace()
+      if (selected) setWorkspace(selected)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
+  const submit = async (event: FormEvent): Promise<void> => {
+    event.preventDefault()
+    const task = prompt.trim()
+    if (!task || !workspace || dispatching || taskEligible !== true) return
+    setDispatching(true)
+    setError(null)
+    try {
+      await dispatch(task, {
+        scopeId: workspace.scopeId,
+        boundary: { wallClockMs: 10 * 60_000 }
+      })
+      setPrompt('')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setDispatching(false)
+    }
+  }
 
   return (
     <section className="codex-panel" aria-label="Codex tasks">
@@ -67,6 +116,51 @@ export function CodexPanel(): React.JSX.Element {
           {receiptsVisible ? 'HIDE RECEIPTS' : 'RECEIPTS'}
         </button>
       </header>
+
+      <form className="codex-compose" onSubmit={(event) => void submit(event)}>
+        {loggedIn === true && taskEligible === false && (
+          <p className="codex-eligibility-note" role="status">
+            {taskEligibilityMessage(auth.state === 'signed_in' ? auth.planType : null)}
+          </p>
+        )}
+        <button
+          type="button"
+          className="codex-workspace"
+          onClick={() => void chooseWorkspace()}
+          disabled={taskEligible !== true}
+          title={
+            taskEligible === true
+              ? (workspace?.path ?? 'Choose a workspace')
+              : 'Verified folder tasks are unavailable for this account'
+          }
+        >
+          <span>WORKSPACE</span>
+          <strong>{workspace ? compactPath(workspace.path) : 'CHOOSE FOLDER'}</strong>
+        </button>
+        <div className="codex-compose-row">
+          <input
+            value={prompt}
+            onChange={(event) => setPrompt(event.target.value)}
+            placeholder="Ask Codex to work in this folder"
+            aria-label="Codex task"
+            maxLength={32_000}
+            disabled={taskEligible !== true}
+          />
+          <button
+            type="submit"
+            disabled={
+              !workspace ||
+              !prompt.trim() ||
+              dispatching ||
+              tasks.some((task) => task.state === 'running') ||
+              taskEligible !== true
+            }
+          >
+            {dispatching ? 'QUEUING' : 'RUN'}
+          </button>
+        </div>
+        {error && <p className="codex-compose-error">{error}</p>}
+      </form>
 
       {tasks.length === 0 && !receiptsVisible && (
         <p className="codex-empty">No tasks dispatched yet.</p>
@@ -87,6 +181,18 @@ export function CodexPanel(): React.JSX.Element {
       {receiptsVisible && <ReceiptsHistory receipts={receipts} />}
     </section>
   )
+}
+
+function taskEligibilityMessage(planType: string | null): string {
+  if (planType && PERSONAL_ACTION_PLANS.has(planType.toLowerCase())) {
+    return 'Secure action identity is unavailable, so verified folder tasks are paused. Chat and Apps still work.'
+  }
+  return 'Verified folder tasks require an eligible personal ChatGPT account. Chat and Apps still work.'
+}
+
+function compactPath(path: string): string {
+  const parts = path.split(/[\\/]/).filter(Boolean)
+  return parts.slice(-2).join(' / ') || path
 }
 
 function TaskRow({
@@ -189,22 +295,35 @@ function EventRow({ row }: { row: CodexEventRow }): React.JSX.Element {
   return <li className={`codex-event codex-event--${row.kind}`}>{row.summary}</li>
 }
 
-function ReceiptsHistory({ receipts }: { receipts: CodexRunReceipt[] }): React.JSX.Element {
+const ACTION_TERMINAL_LABEL: Record<ActionReceiptRow['terminal'], string> = {
+  success: 'VERIFIED',
+  denied: 'DENIED',
+  blocked: 'BLOCKED',
+  unknown_outcome: 'OUTCOME UNKNOWN'
+}
+
+function ReceiptsHistory({ receipts }: { receipts: ActionReceiptRow[] }): React.JSX.Element {
   return (
     <div className="codex-receipts">
-      <span className="codex-receipts-title">RUN RECEIPTS</span>
+      <span className="codex-receipts-title">ACTION RECEIPTS</span>
       {receipts.length === 0 && <p className="codex-empty">No receipts recorded yet.</p>}
       <ul className="codex-receipt-list">
         {receipts.map((r) => (
-          <li key={`${r.taskId}-${r.finishedAt}`} className="codex-receipt">
+          <li key={r.receiptId} className="codex-receipt">
             <span className={`codex-badge codex-badge--${r.terminal.replace(/_/g, '-')}`}>
-              {TERMINAL_LABEL[r.terminal]}
+              {ACTION_TERMINAL_LABEL[r.terminal]}
             </span>
             <span className="codex-receipt-time">{new Date(r.finishedAt).toLocaleString()}</span>
-            <span className="codex-receipt-hash codex-mono" title={r.promptSha256}>
-              {r.promptSha256.slice(0, 8)}
+            <span className="codex-receipt-hash codex-mono" title={r.intentHash}>
+              {r.intentHash.slice(0, 8)}
             </span>
-            <p className="codex-receipt-evidence">{r.evidence}</p>
+            <strong className="codex-receipt-operation">{r.operation}</strong>
+            <span className="codex-receipt-target codex-mono" title={r.target}>
+              {compactPath(r.target)}
+            </span>
+            <p className="codex-receipt-evidence">
+              {r.summary} Verification: {r.verification}.
+            </p>
           </li>
         ))}
       </ul>
