@@ -13,11 +13,18 @@ const publishWorkflow = readFileSync(
 )
 
 describe('trusted release workflows', () => {
-  it('enables PR ad-hoc signing only in the unprivileged verification job', () => {
+  it('builds native arm64 and x64 PR previews only in unprivileged jobs', () => {
     expect(ciWorkflow).toContain('permissions:\n  contents: read')
     expect(ciWorkflow).toContain('persist-credentials: false')
+    expect(ciWorkflow).toContain('name: Development package (${{ matrix.arch }})')
+    expect(ciWorkflow).toContain("if: github.event_name == 'pull_request'")
+    expect(ciWorkflow).toContain('runner: macos-15')
+    expect(ciWorkflow).toContain('runner: macos-15-intel')
     expect(ciWorkflow).toContain("CSC_FOR_PULL_REQUEST: 'true'")
-    expect(ciWorkflow).toContain("JARVIS_SKIP_APP_BUILD: '1'")
+    expect(ciWorkflow).toContain('npm run verify:package:artifacts:dev')
+    expect(ciWorkflow).toContain('jarvis-development-adhoc-pr-')
+    expect(ciWorkflow).toContain('retention-days: 1')
+    expect(ciWorkflow).toContain('compression-level: 0')
     expect(ciWorkflow).not.toContain('secrets.')
   })
 

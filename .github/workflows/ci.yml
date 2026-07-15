@@ -35,17 +35,6 @@ jobs:
       - name: Format, lint, typecheck, unit test, build, and smoke test
         run: npm run verify:ci
 
-      - name: Verify ad-hoc package layout and nested native signatures
-        env:
-          JARVIS_SKIP_APP_BUILD: '1'
-          # electron-builder skips even an explicit ad-hoc identity on pull_request
-          # unless this is set. This job has no secrets, read-only permissions, and
-          # a checkout without persisted credentials.
-          CSC_FOR_PULL_REQUEST: 'true'
-        run: |
-          npm run build:unpack:mac
-          npm run verify:package:dev
-
       - name: Upload coverage and Electron smoke evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -56,6 +45,80 @@ jobs:
           path: |
             node_modules/.cache/jarvis-coverage
             node_modules/.cache/jarvis-verification-summary.json
-            node_modules/.cache/jarvis-dev-package-summary.json
             node_modules/.cache/playwright-report
             node_modules/.cache/playwright-results
+
+  package-development:
+    name: Development package (${{ matrix.arch }})
+    if: github.event_name == 'pull_request'
+    needs: verify-macos
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            swift_arch: arm64
+            runner: macos-15
+          - arch: x64
+            swift_arch: x86_64
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    env:
+      TARGET_ARCH: ${{ matrix.arch }}
+      JARVIS_MACOS_SPEECH_ARCH: ${{ matrix.swift_arch }}
+      JARVIS_MACOS_SPEECH_RESOURCE_ARCH: ${{ matrix.swift_arch }}
+    steps:
+      - name: Check out repository without credentials
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Test native helpers on the target architecture
+        run: npm run test:native
+
+      - name: Build ad-hoc DMG and ZIP on the native runner
+        env:
+          # electron-builder otherwise skips the explicit ad-hoc identity on PRs.
+          # This workflow has no secrets, read-only permissions, and no persisted token.
+          CSC_FOR_PULL_REQUEST: 'true'
+        run: npm run build:mac
+
+      - name: Verify both archives and copied installs
+        run: |
+          npm run verify:package:artifacts:dev -- \
+            --arch "$TARGET_ARCH" \
+            --dist-dir dist \
+            --summary-path "dist/verification-${TARGET_ARCH}.json"
+
+      - name: Add an unambiguous development-only warning
+        shell: bash
+        run: |
+          printf '%s\n' \
+            'JARVIS DEVELOPMENT PREVIEW — NOT FOR END USERS' \
+            'This build is ad-hoc signed, is not notarized, and may trigger macOS warnings.' \
+            'Use it only to verify this pull request. Trusted downloads come from a published immutable release.' \
+            > dist/DEVELOPMENT-ONLY.txt
+
+      - name: Upload verified development installers
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: jarvis-development-adhoc-pr-${{ github.event.pull_request.number }}-${{ matrix.arch }}-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+          include-hidden-files: false
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/verification-${{ matrix.arch }}.json
+            dist/DEVELOPMENT-ONLY.txt
