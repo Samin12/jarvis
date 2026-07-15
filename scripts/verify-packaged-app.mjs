@@ -19,6 +19,7 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
+import { verifyLegalNotices } from './legal-notices.mjs'
 import { verifyMacOSEntitlementBoundaries } from './verify-macos-entitlements.mjs'
 import {
   assertDeveloperIdSignature,
@@ -32,7 +33,7 @@ const { listPackage } = require('@electron/asar')
 const BUNDLE_IDENTIFIER = 'us.aianswer.jarvis'
 const MINIMUM_MACOS_VERSION = '13.0'
 const DEVELOPMENT_ENTRY_PATTERN =
-  /^(?:tests|\.github|docs|native|src|scripts)(?:\/|$)|^(?:vitest\.config\.ts|playwright\.config\.ts|tsconfig\.test\.json)$/
+  /^(?:tests|\.github|docs|legal|native|src|scripts)(?:\/|$)|^(?:vitest\.config\.ts|playwright\.config\.ts|tsconfig\.test\.json)$/
 const SENSITIVE_PATH_PATTERN =
   /(?:^|\/)(?:\.codex|\.jarvis)(?:\/|$)|(?:^|\/)(?:\.env(?:\.[^/]*)?|\.npmrc|auth\.json(?:\.[^/]*)?|credentials?\.json(?:\.[^/]*)?|electron-builder\.env|[^/]+\.(?:p12|p8|pem|key|jks|mobileprovision))(?:$)/i
 const SECRET_PATTERNS = [
@@ -353,6 +354,7 @@ function verifyApp(appPath, label, context) {
   }
 
   const resources = join(appPath, 'Contents', 'Resources')
+  const legalNotices = verifyLegalNotices(join(resources, 'legal'))
   const appAsar = join(resources, 'app.asar')
   const appAsarInfo = lstatSync(appAsar)
   if (appAsarInfo.isSymbolicLink() || !appAsarInfo.isFile()) {
@@ -431,6 +433,7 @@ function verifyApp(appPath, label, context) {
     manifest,
     manifestSha256: createHash('sha256').update(manifest.join('\n')).digest('hex'),
     signedMachOCount,
+    legalNotices,
     helpers: helperEvidence,
     speechHelper: `${resourceArch}/jarvis-macos-speech`,
     workspaceHelper: `${resourceArch}/jarvis-workspace-helper`
@@ -617,6 +620,7 @@ try {
       'DMG bundle verified',
       'bundle contents identical',
       'credential scan clean',
+      'third-party legal notices verified',
       'main/helper entitlement boundaries verified',
       'every nested Mach-O signature verified',
       'both copied installs opened signed-out onboarding'
@@ -629,6 +633,7 @@ try {
         : 'copied development installs passed onboarding smoke',
     speechHelper: zipResult.speechHelper,
     nativeHelpers: zipResult.helpers,
+    legalNotices: zipResult.legalNotices,
     codex: zipResult.codex
   }
   if (summaryPath) {

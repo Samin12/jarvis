@@ -6,6 +6,7 @@ out/
 release/
 .vite/
 /build/native/
+/build/legal/
 # env & secrets
 .env
 .env.*

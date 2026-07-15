@@ -1,11 +1,13 @@
 export type ReleaseAsset = { name: string; digest: string; size: number }
 export type ReleaseContract = {
-  schemaVersion: 1
+  schemaVersion: 2
   repository: string
   tag: string
   commit: string
   packageName: string
   version: string
+  title: string
+  bodySha256: string
   prerelease: boolean
   assets: ReleaseAsset[]
 }
@@ -34,18 +36,14 @@ export function assertReleaseMatchesContract(
   contract: ReleaseContract,
   releaseView: unknown
 ): ReleaseAsset[]
+export function assertPublishedReleaseMatchesContract(
+  contract: ReleaseContract,
+  releaseView: unknown
+): ReleaseAsset[]
 export function sha256PhysicalFile(path: string): { bytes: number; sha256: string }
 export function verifyLocalReleaseAssets(
   contract: ReleaseContract,
   directory: string,
   arch?: 'arm64' | 'x64' | null
 ): Array<{ name: string; bytes: number; sha256: string }>
-export function renderTrustedReleaseNotes(input: {
-  contract: ReleaseContract
-  arm64Evidence: unknown
-  x64Evidence: unknown
-  existingBody: string
-  expectedTeamId: unknown
-  runUrl: unknown
-}): string
 export function runReleasePolicyCli(argv: string[]): Promise<void>

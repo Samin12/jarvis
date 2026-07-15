@@ -72,7 +72,7 @@ jobs:
           fi
           echo "release_commit=$main_commit" >> "$GITHUB_OUTPUT"
 
-      - name: Capture the exact four-asset draft contract
+      - name: Capture the exact eleven-asset draft contract
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -80,8 +80,8 @@ jobs:
           set -euo pipefail
           gh release view "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
-            --json tagName,isDraft,isPrerelease,assets,body > release-view.json
-          node scripts/release-policy.mjs capture \
+            --json tagName,name,isDraft,isPrerelease,assets,body > release-view.json
+          GH_TOKEN='' node scripts/release-policy.mjs capture \
             --release-view release-view.json \
             --tag "$RELEASE_TAG" \
             --commit "$(git rev-parse --verify HEAD)" \
@@ -186,16 +186,7 @@ jobs:
         run: |
           npm run verify:package -- \
             --arch "$TARGET_ARCH" \
-            --dist-dir release-assets \
-            --summary-path "verification-${TARGET_ARCH}.json"
-
-      - name: Preserve native verification evidence
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: jarvis-promotion-evidence-${{ matrix.arch }}
-          if-no-files-found: error
-          retention-days: 1
-          path: verification-${{ matrix.arch }}.json
+            --dist-dir release-assets
 
   publish:
     name: Publish the independently reverified draft
@@ -236,20 +227,13 @@ jobs:
             exit 1
           fi
 
-      - name: Download the contract and both native evidence records
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          pattern: jarvis-*-evidence-*
-          path: promotion-evidence
-          merge-multiple: true
-
       - name: Download the release contract
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: jarvis-release-contract
           path: promotion-contract
 
-      - name: Fetch the live draft and all four contracted assets
+      - name: Fetch the live draft and all eleven contracted assets
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -257,7 +241,7 @@ jobs:
           set -euo pipefail
           gh release view "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
-            --json tagName,isDraft,isPrerelease,assets,body | jq -S . > release-view.json
+            --json tagName,name,isDraft,isPrerelease,assets,body | jq -S . > release-view.json
 
           mkdir release-assets
           jq -r '.assets[].name' promotion-contract/release-contract.json > expected-assets.txt
@@ -268,7 +252,7 @@ jobs:
               --dir release-assets
           done < expected-assets.txt
 
-      - name: Recheck the live draft and all four asset hashes without a GitHub token
+      - name: Recheck the live draft, all assets, and every receipt without a GitHub token
         env:
           GH_TOKEN: ''
         run: |
@@ -278,21 +262,13 @@ jobs:
           node scripts/release-policy.mjs verify-assets \
             --contract promotion-contract/release-contract.json \
             --dir release-assets
-          jq -r '.body // ""' release-view.json > existing-notes.md
-
-      - name: Render evidence-rich release notes without a GitHub write token
-        env:
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          GH_TOKEN: ''
-        run: |
-          node scripts/release-policy.mjs render-notes \
-            --contract promotion-contract/release-contract.json \
-            --arm64-evidence promotion-evidence/verification-arm64.json \
-            --x64-evidence promotion-evidence/verification-x64.json \
-            --existing-body existing-notes.md \
-            --team-id "$APPLE_TEAM_ID" \
-            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
-            --out trusted-release-notes.md
+          node scripts/release-receipts.mjs verify \
+            --assets-dir release-assets \
+            --package-json package.json \
+            --tag "$RELEASE_TAG" \
+            --commit "$EXPECTED_COMMIT" \
+            --repository "$GITHUB_REPOSITORY" \
+            --release-view release-view.json
 
       - name: Publish only if the draft is byte-for-byte unchanged
         shell: bash
@@ -307,7 +283,7 @@ jobs:
 
           gh release view "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
-            --json tagName,isDraft,isPrerelease,assets,body | jq -S . > release-view-at-publish.json
+            --json tagName,name,isDraft,isPrerelease,assets,body | jq -S . > release-view-at-publish.json
           cmp --silent release-view.json release-view-at-publish.json || {
             echo 'Draft metadata or assets changed immediately before publication.' >&2
             exit 1
@@ -315,12 +291,12 @@ jobs:
 
           gh release edit "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
-            --draft=false \
-            --notes-file trusted-release-notes.md
+            --draft=false
 
-          published=$(gh release view "$RELEASE_TAG" \
+          gh release view "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
-            --json tagName,isDraft,isImmutable)
-          [[ "$(jq -r '.tagName' <<< "$published")" == "$RELEASE_TAG" ]]
-          [[ "$(jq -r '.isDraft' <<< "$published")" == 'false' ]]
-          [[ "$(jq -r '.isImmutable' <<< "$published")" == 'true' ]]
+            --json tagName,name,isDraft,isPrerelease,isImmutable,assets,body \
+            | jq -S . > release-view-published.json
+          GH_TOKEN='' node scripts/release-policy.mjs assert-published \
+            --contract promotion-contract/release-contract.json \
+            --release-view release-view-published.json

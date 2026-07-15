@@ -70,6 +70,8 @@ if [[ "${JARVIS_SKIP_APP_BUILD:-0}" != "1" ]]; then
 fi
 npm run build:native:mac
 npm run verify:native-stage
+npm run build:legal
+npm run verify:legal
 
 BUILDER=("$REPO_ROOT/node_modules/.bin/electron-builder")
 if [[ "$MODE" == "release" ]]; then

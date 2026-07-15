@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -7,9 +7,10 @@ import { describe, expect, it } from 'vitest'
 
 import {
   assertDeveloperIdSignature,
+  assertPublishedReleaseMatchesContract,
   assertReleaseMatchesContract,
   createReleaseContract,
-  renderTrustedReleaseNotes,
+  expectedReleaseAssetNames,
   requireAppleApiIssuer,
   requireAppleApiKeyId,
   requireAppleTeamId,
@@ -29,30 +30,16 @@ type FixtureAsset = {
   bytes: Buffer
 }
 
-type PackageEvidence = {
-  schemaVersion: number
-  packageVersion: string
-  arch: 'arm64' | 'x64'
-  mode: string
-  teamId: string
-  signature: string
-  notarization: string
-  copiedInstall: string
-  artifacts: Array<{ name: string; bytes: number; sha256: string }>
-}
-
 function releaseAssets(): FixtureAsset[] {
-  return ['arm64', 'x64'].flatMap((arch) =>
-    ['dmg', 'zip'].map((extension) => {
-      const bytes = Buffer.from(`${arch}-${extension}`)
-      return {
-        name: `jarvis-${version}-${arch}.${extension}`,
-        size: bytes.byteLength,
-        digest: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
-        bytes
-      }
-    })
-  )
+  return expectedReleaseAssetNames('jarvis', version).map((name) => {
+    const bytes = Buffer.from(`receipt:${name}`)
+    return {
+      name,
+      size: bytes.byteLength,
+      digest: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
+      bytes
+    }
+  })
 }
 
 function contractFixture(): ReleaseContract {
@@ -64,6 +51,8 @@ function contractFixture(): ReleaseContract {
     packageJson: { name: 'jarvis', version },
     releaseView: {
       tagName: tag,
+      name: `Jarvis ${tag}`,
+      body: 'Bound release notes.\n',
       isDraft: true,
       isPrerelease: false,
       assets: assets.map((asset) => ({
@@ -73,26 +62,6 @@ function contractFixture(): ReleaseContract {
       }))
     }
   })
-}
-
-function packageEvidence(contract: ReleaseContract, arch: 'arm64' | 'x64'): PackageEvidence {
-  return {
-    schemaVersion: 1,
-    packageVersion: contract.version,
-    arch,
-    mode: 'release',
-    teamId,
-    signature: 'Developer ID + hardened runtime',
-    notarization: 'Gatekeeper accepted + stapled ticket',
-    copiedInstall: 'quarantined copies passed Gatekeeper and onboarding smoke',
-    artifacts: contract.assets
-      .filter((asset) => asset.name.includes(`-${arch}.`))
-      .map((asset) => ({
-        name: asset.name,
-        bytes: asset.size,
-        sha256: asset.digest.slice('sha256:'.length)
-      }))
-  }
 }
 
 describe('trusted release policy', () => {
@@ -125,12 +94,19 @@ describe('trusted release policy', () => {
     expect(() => requireAppleApiIssuer('not-a-uuid')).toThrow()
   })
 
-  it('binds a draft contract to exactly four immutable asset digests', () => {
+  it('binds a draft contract to metadata and exactly 11 immutable asset digests', () => {
     const contract = contractFixture()
-    expect(contract.assets).toHaveLength(4)
+    expect(contract).toMatchObject({
+      schemaVersion: 2,
+      title: `Jarvis ${tag}`,
+      assets: expect.any(Array)
+    })
+    expect(contract.assets).toHaveLength(11)
     expect(() =>
       assertReleaseMatchesContract(contract, {
         tagName: tag,
+        name: contract.title,
+        body: 'Bound release notes.\n',
         isDraft: true,
         isPrerelease: false,
         assets: contract.assets.map((asset, index) =>
@@ -138,6 +114,43 @@ describe('trusted release policy', () => {
         )
       })
     ).toThrow('changed after draft verification')
+
+    expect(() =>
+      assertReleaseMatchesContract(contract, {
+        tagName: tag,
+        name: contract.title,
+        body: 'Changed notes.\n',
+        isDraft: true,
+        isPrerelease: false,
+        assets: contract.assets
+      })
+    ).toThrow('release notes changed')
+  })
+
+  it('accepts publication only when metadata and all assets become immutable unchanged', () => {
+    const contract = contractFixture()
+    expect(
+      assertPublishedReleaseMatchesContract(contract, {
+        tagName: tag,
+        name: contract.title,
+        body: 'Bound release notes.\n',
+        isDraft: false,
+        isImmutable: true,
+        isPrerelease: false,
+        assets: contract.assets
+      })
+    ).toHaveLength(11)
+    expect(() =>
+      assertPublishedReleaseMatchesContract(contract, {
+        tagName: tag,
+        name: contract.title,
+        body: 'Bound release notes.\n',
+        isDraft: false,
+        isImmutable: false,
+        isPrerelease: false,
+        assets: contract.assets
+      })
+    ).toThrow('is not immutable')
   })
 
   it('verifies downloaded artifacts by physical-file size and SHA-256', () => {
@@ -168,36 +181,5 @@ describe('trusted release policy', () => {
     expect(() => verifyLocalReleaseAssets(contract, root, 'arm64')).toThrow(
       'must contain only physical files'
     )
-  })
-
-  it('renders notes only from both exact signed/notarized package summaries', () => {
-    const contract = contractFixture()
-    const notes = renderTrustedReleaseNotes({
-      contract,
-      arm64Evidence: packageEvidence(contract, 'arm64'),
-      x64Evidence: packageEvidence(contract, 'x64'),
-      existingBody: 'Generated change notes.',
-      expectedTeamId: teamId,
-      runUrl: 'https://github.com/Samin12/jarvis/actions/runs/123'
-    })
-    expect(notes).toContain('Trusted macOS release evidence')
-    expect(notes).toContain(teamId)
-    expect(notes).toContain(contract.commit)
-    expect(notes).toContain('gh release verify-asset')
-    expect(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).toContain(
-      '"jarvis"'
-    )
-    expect(notes).toContain('Generated change notes.')
-
-    expect(() =>
-      renderTrustedReleaseNotes({
-        contract,
-        arm64Evidence: { ...packageEvidence(contract, 'arm64'), teamId: 'ZZ99YY88XX' },
-        x64Evidence: packageEvidence(contract, 'x64'),
-        existingBody: '',
-        expectedTeamId: teamId,
-        runUrl: 'https://github.com/Samin12/jarvis/actions/runs/123'
-      })
-    ).toThrow('Apple Team changed')
   })
 })

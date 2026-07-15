@@ -46,24 +46,84 @@ describe('trusted release workflows', () => {
     expect(draftWorkflow).not.toContain('APPLE_APP_SPECIFIC_PASSWORD')
   })
 
-  it('reverifies both native packages before protected draft publication', () => {
+  it('builds the exact eleven-asset draft with complete receipts and prepared metadata', () => {
+    expect(draftWorkflow).toContain(
+      '--summary-path "dist/jarvis-${package_version}-${TARGET_ARCH}-verification.json"'
+    )
+    expect(draftWorkflow).toContain('dist/jarvis-*-${{ matrix.arch }}-verification.json')
+    expect(draftWorkflow).toContain('merge-multiple: true')
+    expect(draftWorkflow).toContain('npm sbom')
+    expect(draftWorkflow).toContain('--package-lock-only')
+    expect(draftWorkflow).toContain('--sbom-format=cyclonedx')
+    expect(draftWorkflow).toContain('--sbom-type=application')
+    expect(draftWorkflow).toContain("jq -S 'del(.serialNumber, .metadata.timestamp)'")
+    expect(draftWorkflow).not.toContain('--omit=dev')
+    expect(draftWorkflow).toContain('npm run verify:legal')
+    expect(draftWorkflow).toContain('dist/jarvis-${package_version}-third-party-notices.zip')
+    expect(draftWorkflow).toContain("if: matrix.arch == 'arm64'")
+    expect(draftWorkflow).toContain('node scripts/release-receipts.mjs prepare')
+    expect(draftWorkflow).toContain('--title-out release-title.txt')
+    expect(draftWorkflow).toContain('--body-out release-notes.md')
+    expect(draftWorkflow).toContain('expectedReleaseAssetNames')
+    expect(draftWorkflow).toContain('entries.length !== 11')
+    expect(draftWorkflow).toContain('if [[ ${#assets[@]} -ne 11 ]]')
+    expect(draftWorkflow).toContain('--notes-file release-notes.md')
+    expect(draftWorkflow).toContain('--title "$(< release-title.txt)"')
+    expect(draftWorkflow).toContain('Create or safely reuse and verify the exact draft')
+    expect(draftWorkflow).toContain('validate_reusable_draft')
+    expect(draftWorkflow).toContain(
+      'Removing the exact partial draft created by this failed upload or verification'
+    )
+    expect(draftWorkflow).toContain('--json tagName,name,isDraft,isPrerelease,assets,body')
+    expect(draftWorkflow).toContain('node scripts/release-policy.mjs assert-live-draft')
+    expect(draftWorkflow).toContain('node scripts/release-policy.mjs verify-assets')
+    expect(draftWorkflow).toContain('node scripts/release-receipts.mjs verify')
+  })
+
+  it('reverifies only native installers and publishes the unchanged eleven-asset draft', () => {
     expect(publishWorkflow).toContain('workflow_dispatch:')
     expect(publishWorkflow.match(/environment: release/gu)).toHaveLength(2)
+    expect(publishWorkflow).toContain('Capture the exact eleven-asset draft contract')
+    expect(publishWorkflow).toContain('--json tagName,name,isDraft,isPrerelease,assets,body')
     expect(publishWorkflow).toContain('runner: macos-15')
     expect(publishWorkflow).toContain('runner: macos-15-intel')
-    expect(publishWorkflow).toContain('--summary-path "verification-${TARGET_ARCH}.json"')
+    expect(publishWorkflow).toContain('names.length !== 2')
+    expect(publishWorkflow).toContain('npm run verify:package')
     expect(publishWorkflow).toContain('APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}')
     expect(publishWorkflow).toContain('assert-live-draft')
     expect(publishWorkflow).toContain('verify-assets')
+    expect(publishWorkflow).toContain('node scripts/release-receipts.mjs verify')
     expect(publishWorkflow).toContain('cmp --silent release-view.json release-view-at-publish.json')
     expect(publishWorkflow).toContain('--draft=false')
+    expect(publishWorkflow).not.toContain('render-notes')
+    expect(publishWorkflow).not.toContain('--notes-file')
+    expect(publishWorkflow).toContain(
+      '--json tagName,name,isDraft,isPrerelease,isImmutable,assets,body'
+    )
+    expect(publishWorkflow).toContain('node scripts/release-policy.mjs assert-published')
+    expect(publishWorkflow).not.toContain('jarvis-promotion-evidence-')
+
+    expect(publishWorkflow.indexOf('node scripts/release-receipts.mjs verify')).toBeLessThan(
+      publishWorkflow.indexOf('gh release edit "$RELEASE_TAG"')
+    )
+    expect(
+      publishWorkflow.indexOf('node scripts/release-policy.mjs assert-published')
+    ).toBeGreaterThan(publishWorkflow.indexOf('gh release edit "$RELEASE_TAG"'))
   })
 
-  it('requires immutable releases and keeps third-party actions pinned to full SHAs', () => {
+  it('isolates write tokens, requires immutable releases, and pins third-party actions', () => {
     expect(publishWorkflow.match(/repos\/\$GITHUB_REPOSITORY\/immutable-releases/gu)).toHaveLength(
       2
     )
-    expect(publishWorkflow).toContain('\'.isImmutable\' <<< "$published"')
+    expect(draftWorkflow).not.toContain('    env:\n      GH_TOKEN: ${{ github.token }}')
+    expect(publishWorkflow).not.toContain('    env:\n      GH_TOKEN: ${{ github.token }}')
+    expect(draftWorkflow).toContain("GH_TOKEN: ''")
+    expect(publishWorkflow).toContain("GH_TOKEN: ''")
+    expect(draftWorkflow).toContain("GH_TOKEN='' node scripts/release-policy.mjs capture")
+    expect(publishWorkflow).toContain("GH_TOKEN='' node scripts/release-policy.mjs capture")
+    expect(publishWorkflow).toContain(
+      "GH_TOKEN='' node scripts/release-policy.mjs assert-published"
+    )
 
     for (const workflow of [draftWorkflow, publishWorkflow]) {
       for (const line of workflow.split('\n').filter((value) => value.includes('uses: actions/'))) {

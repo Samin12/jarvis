@@ -1,6 +1,7 @@
 {
   "name": "jarvis",
   "version": "0.2.0",
+  "private": true,
   "description": "Jarvis — sign in with ChatGPT, talk to a live voice assistant, connect your apps, dispatch Codex.",
   "main": "./out/main/index.js",
   "author": "Samin Yasar",
@@ -16,6 +17,7 @@
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
+    "build:legal": "node scripts/legal-notices.mjs build --out build/legal",
     "build:native:mac": "./scripts/build-macos-speech.sh release",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
@@ -24,6 +26,7 @@
     "verify:smoke": "node scripts/verify-electron-smoke.mjs",
     "verify:ci": "node scripts/verify-ci.mjs",
     "verify:native-stage": "node scripts/verify-macos-speech-stage.mjs",
+    "verify:legal": "node scripts/legal-notices.mjs verify --dir build/legal",
     "verify:release-config": "node scripts/verify-release-secrets.mjs --config-only",
     "verify:release-secrets": "node scripts/verify-release-secrets.mjs",
     "verify:package:dev": "node scripts/verify-unpacked-app.mjs",

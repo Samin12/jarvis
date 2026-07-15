@@ -10,6 +10,7 @@ files:
   - '!.claude/**/*'
   - '!native/**/*'
   - '!scripts/**/*'
+  - '!legal/**/*'
   - '!electron.vite.config.{js,ts,mjs,cjs}'
   - '!{vitest.config.ts,playwright.config.ts}'
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
@@ -44,6 +45,8 @@ mac:
   minimumSystemVersion: '13.0'
   sign: ./scripts/macos-sign.mjs
   extraResources:
+    - from: build/legal
+      to: legal
     - from: build/native/macos-speech/${env.JARVIS_MACOS_SPEECH_RESOURCE_ARCH}/jarvis-macos-speech
       to: native/macos-speech/${env.JARVIS_MACOS_SPEECH_RESOURCE_ARCH}/jarvis-macos-speech
     - from: build/native/macos-speech/${env.JARVIS_MACOS_SPEECH_RESOURCE_ARCH}/jarvis-workspace-helper

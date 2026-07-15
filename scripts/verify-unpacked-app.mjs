@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto'
 import { lstatSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { verifyLegalNotices } from './legal-notices.mjs'
 import { verifyMacOSEntitlementBoundaries } from './verify-macos-entitlements.mjs'
 
 const require = createRequire(import.meta.url)
@@ -132,12 +133,13 @@ if (!appArchitectures.includes(machArch)) {
 }
 
 const resources = join(appPath, 'Contents', 'Resources')
+const legalNotices = verifyLegalNotices(join(resources, 'legal'))
 const appAsar = join(resources, 'app.asar')
 if (!statSync(appAsar).isFile()) throw new Error('app.asar is missing')
 const forbiddenAsarEntries = listPackage(appAsar)
   .map((entry) => entry.replaceAll('\\', '/').replace(/^\/+/, ''))
   .filter((entry) =>
-    /^(?:tests|\.github|docs|native|src|scripts)(?:\/|$)|^(?:vitest\.config\.ts|playwright\.config\.ts|tsconfig\.test\.json)$|(?:^|\/)(?:\.jarvis(?:\/|$)|auth\.json$|electron-builder\.env$|\.env(?:\.|$)|\.npmrc$|[^/]+\.(?:p12|pfx|p8|cer|pem|key|mobileprovision|jks)$)/i.test(
+    /^(?:tests|\.github|docs|legal|native|src|scripts)(?:\/|$)|^(?:vitest\.config\.ts|playwright\.config\.ts|tsconfig\.test\.json)$|(?:^|\/)(?:\.jarvis(?:\/|$)|auth\.json$|electron-builder\.env$|\.env(?:\.|$)|\.npmrc$|[^/]+\.(?:p12|pfx|p8|cer|pem|key|mobileprovision|jks)$)/i.test(
       entry
     )
   )
@@ -214,6 +216,7 @@ const summary = {
     sha256: sha256(helper)
   })),
   entitlementSummary,
+  legalNotices,
   codex: codexVersion,
   asarLeakCount: forbiddenAsarEntries.length
 }

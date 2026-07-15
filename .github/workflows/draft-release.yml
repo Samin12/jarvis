@@ -209,7 +209,27 @@ jobs:
       - name: Verify architecture, nested Codex binary, signature, and notarization
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: npm run verify:package -- --arch "${TARGET_ARCH}" --dist-dir dist
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_version=$(node -p 'require("./package.json").version')
+          npm run verify:package -- \
+            --arch "$TARGET_ARCH" \
+            --dist-dir dist \
+            --summary-path "dist/jarvis-${package_version}-${TARGET_ARCH}-verification.json"
+
+      - name: Archive the verified third-party legal tree once
+        if: matrix.arch == 'arm64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run verify:legal
+          package_version=$(node -p 'require("./package.json").version')
+          notices_path="$PWD/dist/jarvis-${package_version}-third-party-notices.zip"
+          (
+            cd build/legal
+            /usr/bin/zip -X -q -r "$notices_path" .
+          )
 
       - name: Upload verified release artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -220,6 +240,7 @@ jobs:
           path: |
             dist/*.dmg
             dist/*.zip
+            dist/jarvis-*-${{ matrix.arch }}-verification.json
 
   publish-draft:
     name: Create GitHub draft release
@@ -228,9 +249,8 @@ jobs:
     permissions:
       contents: write
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     env:
-      GH_TOKEN: ${{ github.token }}
       RELEASE_TAG: ${{ inputs.release_tag }}
       PRERELEASE: ${{ inputs.prerelease }}
       EXPECTED_COMMIT: ${{ needs.validate_release_ref.outputs.release_commit }}
@@ -259,33 +279,175 @@ jobs:
             exit 1
           fi
 
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
       - name: Download both verified architectures
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: jarvis-macos-*
           path: release-assets
+          merge-multiple: true
 
-      - name: Refuse to overwrite an existing release and create a draft
+      - name: Generate the full source dependency SBOM
         shell: bash
         run: |
           set -euo pipefail
-          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "Release $RELEASE_TAG already exists; refusing to overwrite it." >&2
-            exit 1
-          fi
+          package_version=$(node -p 'require("./package.json").version')
+          npm sbom \
+            --package-lock-only \
+            --sbom-format=cyclonedx \
+            --sbom-type=application \
+            | jq -S 'del(.serialNumber, .metadata.timestamp)' \
+            > "release-assets/jarvis-${package_version}-sbom.cdx.json"
 
-          mapfile -d '' assets < <(find release-assets -type f \( -name '*.dmg' -o -name '*.zip' \) -print0)
-          if [[ ${#assets[@]} -ne 4 ]]; then
-            echo "Expected four verified artifacts (DMG + ZIP for arm64 and x64), found ${#assets[@]}." >&2
-            exit 1
-          fi
+      - name: Prepare the immutable release receipts and human-readable metadata
+        shell: bash
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          GH_TOKEN: ''
+        run: |
+          set -euo pipefail
+          node scripts/release-receipts.mjs prepare \
+            --assets-dir release-assets \
+            --package-json package.json \
+            --tag "$RELEASE_TAG" \
+            --commit "$EXPECTED_COMMIT" \
+            --repository "$GITHUB_REPOSITORY" \
+            --team-id "$APPLE_TEAM_ID" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --title-out release-title.txt \
+            --body-out release-notes.md
 
-          prerelease_flag=()
-          if [[ "$PRERELEASE" == "true" ]]; then prerelease_flag=(--prerelease); fi
-          gh release create "$RELEASE_TAG" "${assets[@]}" \
+      - name: Require exactly eleven physical release assets before uploading
+        env:
+          GH_TOKEN: ''
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync, readdirSync } from 'node:fs'
+          import { join } from 'node:path'
+          import {
+            expectedReleaseAssetNames,
+            sha256PhysicalFile
+          } from './scripts/release-policy.mjs'
+
+          const packageJson = JSON.parse(readFileSync('package.json', 'utf8'))
+          const expected = expectedReleaseAssetNames(packageJson.name, packageJson.version).sort()
+          const entries = readdirSync('release-assets', { withFileTypes: true })
+          const actual = entries.map((entry) => entry.name).sort()
+          if (
+            entries.length !== 11 ||
+            entries.some((entry) => !entry.isFile() || entry.isSymbolicLink()) ||
+            actual.join('\n') !== expected.join('\n')
+          ) {
+            throw new Error(`Release input must contain exactly eleven physical assets; found ${actual.join(', ')}`)
+          }
+          for (const name of actual) sha256PhysicalFile(join('release-assets', name))
+          NODE
+
+      - name: Create or safely reuse and verify the exact draft
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          validate_reusable_draft() {
+            local release_view=$1
+            RELEASE_VIEW="$release_view" node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs'
+
+          const release = JSON.parse(readFileSync(process.env.RELEASE_VIEW, 'utf8'))
+          const expectedTitle = readFileSync('release-title.txt', 'utf8').trim()
+          const expectedBody = readFileSync('release-notes.md', 'utf8')
+          const expectedPrerelease = process.env.PRERELEASE === 'true'
+          if (
+            release.tagName !== process.env.RELEASE_TAG ||
+            release.isDraft !== true ||
+            release.isPrerelease !== expectedPrerelease ||
+            release.name !== expectedTitle ||
+            release.body !== expectedBody
+          ) {
+            process.exit(1)
+          }
+          NODE
+          }
+
+          reuse_existing=false
+          if gh release view "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
-            --draft \
-            --verify-tag \
-            "${prerelease_flag[@]}" \
-            --generate-notes \
-            --title "Jarvis $RELEASE_TAG"
+            --json tagName,name,isDraft,isPrerelease,body > existing-release.json 2>/dev/null; then
+            if validate_reusable_draft existing-release.json; then
+              echo "Reusing the existing exact draft; all eleven assets will now be reverified."
+              reuse_existing=true
+            else
+              echo "Release $RELEASE_TAG already exists but its protected metadata differs; refusing to overwrite it." >&2
+              exit 1
+            fi
+          fi
+
+          if [[ "$reuse_existing" != 'true' ]]; then
+            mapfile -d '' assets < <(find release-assets -mindepth 1 -maxdepth 1 -type f -print0 | sort -z)
+            if [[ ${#assets[@]} -ne 11 ]]; then
+              echo "Expected eleven verified release assets, found ${#assets[@]}." >&2
+              exit 1
+            fi
+
+            prerelease_flag=()
+            if [[ "$PRERELEASE" == "true" ]]; then prerelease_flag=(--prerelease); fi
+
+            cleanup_failed_create() {
+              status=$?
+              trap - EXIT
+              if [[ $status -ne 0 ]] && gh release view "$RELEASE_TAG" \
+                --repo "$GITHUB_REPOSITORY" \
+                --json tagName,name,isDraft,isPrerelease,body > failed-release.json 2>/dev/null; then
+                if validate_reusable_draft failed-release.json; then
+                  echo "Removing the exact partial draft created by this failed upload or verification." >&2
+                  gh release delete "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --yes || true
+                else
+                  echo "A non-matching release now exists; leaving it untouched." >&2
+                fi
+              fi
+              exit "$status"
+            }
+            trap cleanup_failed_create EXIT
+
+            gh release create "$RELEASE_TAG" "${assets[@]}" \
+              --repo "$GITHUB_REPOSITORY" \
+              --draft \
+              --verify-tag \
+              "${prerelease_flag[@]}" \
+              --notes-file release-notes.md \
+              --title "$(< release-title.txt)"
+          fi
+
+          gh release view "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json tagName,name,isDraft,isPrerelease,assets,body \
+            | jq -S . > release-view.json
+          GH_TOKEN='' node scripts/release-policy.mjs capture \
+            --release-view release-view.json \
+            --tag "$RELEASE_TAG" \
+            --commit "$EXPECTED_COMMIT" \
+            --package-json package.json \
+            --repository "$GITHUB_REPOSITORY" \
+            --out release-contract.json
+
+          GH_TOKEN='' node scripts/release-policy.mjs assert-live-draft \
+            --contract release-contract.json \
+            --release-view release-view.json
+          GH_TOKEN='' node scripts/release-policy.mjs verify-assets \
+            --contract release-contract.json \
+            --dir release-assets
+          GH_TOKEN='' node scripts/release-receipts.mjs verify \
+            --assets-dir release-assets \
+            --package-json package.json \
+            --tag "$RELEASE_TAG" \
+            --commit "$EXPECTED_COMMIT" \
+            --repository "$GITHUB_REPOSITORY" \
+            --release-view release-view.json
+
+          if [[ "$reuse_existing" != 'true' ]]; then trap - EXIT; fi
