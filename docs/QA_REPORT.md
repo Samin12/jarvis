@@ -10,6 +10,7 @@ Local QA is green for every non-interactive release gate. A clean profile, a sim
 - `npm run verify:package:artifacts:dev -- --arch arm64 --dist-dir dist` independently extracted the ZIP and mounted the DMG read-only, verified identical bundle contents, checked all 21 nested Mach-O signatures, scanned for credentials, and launched both copied installs into signed-out onboarding.
 - `npm audit`, `npm audit --omit=dev`, and registry signature verification passed with zero known vulnerabilities; all 707 package signatures and 184 available attestations verified.
 - A source and changed-patch credential scan found no secrets. All 18 third-party action references in the three workflows are pinned to full commit SHAs.
+- GitHub PR verification passed on the hosted `macos-15` runner after exercising the full CI and ad-hoc package gates.
 
 ## Artifact receipts
 

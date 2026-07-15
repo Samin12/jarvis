@@ -35,7 +35,7 @@ chooses.
 - [x] Local arm64 DMG/ZIP verification copies both apps to an install location and passes isolated
       signed-out onboarding smoke with byte-identical bundle manifests.
 - [x] Repository immutable releases and the protected `release` environment are enabled.
-- [ ] The workflow is committed to GitHub and a pull-request run is green.
+- [x] The workflow is committed to GitHub and a pull-request run is green.
 - [ ] A Developer ID-signed, hardened, notarized arm64 artifact passes strict package verification.
 - [ ] A Developer ID-signed, hardened, notarized x64 artifact passes strict package verification.
 - [ ] The verified artifacts replace the stale GitHub release and the public download is tested.
